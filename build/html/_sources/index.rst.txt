@@ -3,19 +3,15 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to Mylab's documentation!
+Knowledge World of Xiong Yi
 =================================
 
 .. toctree::
    :maxdepth: 3
    :caption: Contents:
 
-   Sphinx/index
+   Tools/index
+   Memory/index
 
 
-Indices and tables
-==================
 
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`

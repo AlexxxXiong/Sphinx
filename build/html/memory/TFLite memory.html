@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="zh-CN" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>优化 TensorFlow Lite 运行时内存 &mdash; Mylab v1 文档</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=92fd9be5" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=19f00094" />
+
+  
+  <!--[if lt IE 9]>
+    <script src="../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="../_static/jquery.js?v=5d32c60e"></script>
+        <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+        <script src="../_static/documentation_options.js?v=181ac3c6"></script>
+        <script src="../_static/doctools.js?v=9a2dae69"></script>
+        <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+        <script src="../_static/translations.js?v=beaddf03"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="索引" href="../genindex.html" />
+    <link rel="search" title="搜索" href="../search.html" />
+    <link rel="prev" title="Welcome to Sphinx’s documentation!" href="index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            Mylab
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="搜索文档" aria-label="搜索文档" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="导航菜单">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../Sphinx/index.html">Welcome to Sphinx’s documentation!</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../Sphinx/index.html#indices-and-tables">Indices and tables</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Welcome to Sphinx’s documentation!</a><ul class="current">
+<li class="toctree-l2 current"><a class="current reference internal" href="#"><strong>优化 TensorFlow Lite 运行时内存</strong></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#id1">中间张量</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id2">共享内存缓冲区对象</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#id3">内存偏移计算</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="移动版导航菜单" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">Mylab</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="页面导航">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Welcome to Sphinx’s documentation!</a></li>
+      <li class="breadcrumb-item active"><strong>优化 TensorFlow Lite 运行时内存</strong></li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/memory/TFLite memory.md.txt" rel="nofollow"> 查看页面源码</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="tensorflow-lite">
+<h1><strong>优化 TensorFlow Lite 运行时内存</strong><a class="headerlink" href="#tensorflow-lite" title="Link to this heading"></a></h1>
+<blockquote>
+<div><p><strong>它的优化目标是得到中间张量最小的空间，然后开辟给神经网络。</strong></p>
+</div></blockquote>
+<p>由于资源紧张，在移动和嵌入式设备上运行推理具有挑战性；人们必须在严格的功率要求下使用有限的硬件工作。在本文中，我们希望展示 TensorFlow Lite (TFLite) 内存使用方面的改进，使其能够更好地在边缘运行推理。</p>
+<section id="id1">
+<h2>中间张量<a class="headerlink" href="#id1" title="Link to this heading"></a></h2>
+<p>中间张量不必在内存中共存。这使我们能够重用中间张量的内存缓冲区并减少推理引擎的总内存占用。如果网络具有简单链的形状，则两个大内存缓冲区就足够了，因为它们可以在整个网络中来回交换。<strong>然而，对于形成复杂图的任意网络，这种NP完全 资源分配问题需要良好的近似算法。</strong></p>
+<p>我们针对这个问题设计了许多不同的近似算法，它们的表现都不同，具体取决于神经网络和内存缓冲区的属性，但它们都使用一个共同点：**张量使用记录。**中间张量的张量使用记录是一种辅助数据结构，包含有关张量有多大以及在网络给定执行计划中第一次和最后一次使用的信息。借助这些记录，内存管理器能够计算网络执行过程中任何时刻的中间张量使用情况，并优化其运行时内存以尽可能减少占用空间。</p>
+</section>
+<section id="id2">
+<h2>共享内存缓冲区对象<a class="headerlink" href="#id2" title="Link to this heading"></a></h2>
+<p>在TFLite GPU OpenGL 后端中，我们对这些中间张量使用 GL 纹理。它们有一些有趣的限制：(a) 纹理的大小在创建后无法修改，(b) 在给定时间只有一个着色器程序能够独占访问纹理对象。在这种共享内存缓冲区对象模式下，目标是最小化对象池中所有创建的共享内存缓冲区对象的大小总和。这种优化类似于众所周知的<a class="reference external" href="https://en.wikipedia.org/wiki/Register_allocation">寄存器分配问题</a>，只不过由于每个对象的大小可变，它要复杂得多。</p>
+<p>根据前面提到的张量使用记录，我们设计了 5 种不同的算法，如表 1 所示。除了 Min-Cost Flow 之外，它们都是贪心算法，每种算法都使用不同的启发式，但仍然达到或非常接近理论下界。根据网络拓扑，某些算法的性能优于其他算法，但一般来说，GREEDY_BY_SIZE_IMPROVED它们GREEDY_BY_BREADTH会生成具有最小内存占用的对象分配。</p>
+<p>回到我们开头的示例，<code class="docutils literal notranslate"><span class="pre">GREEDY_BY_BREADTH</span></code>MobileNet v2 的性能最佳，它利用了每个算子的广度，即算子配置文件中所有张量的总和。</p>
+</section>
+<section id="id3">
+<h2>内存偏移计算<a class="headerlink" href="#id3" title="Link to this heading"></a></h2>
+<p>https://arxiv.org/abs/1804.10001</p>
+<p>对于在 CPU 上运行的 TFLite，适用于 GL 纹理的内存缓冲区属性不适用。因此，更常见的是预先分配一个巨大的内存区域，并在所有读取器和写入器之间共享它，这些读取器和写入器通过不干扰其他读取和写入的给定偏移量访问它。这种<strong>内存偏移计算</strong>方法的目标是<strong>最小化内存区域的大小。</strong></p>
+<p>与共享对象方法类似，一些算法的性能优于其他算法，具体取决于网络，如表 2 所示。这项研究的一个要点是，**偏移计算方法的占用空间通常比共享对象方法小，**因此，如果适用的话，应该优先选择前者而不是后者。</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="页脚">
+        <a href="index.html" class="btn btn-neutral float-left" title="Welcome to Sphinx’s documentation!" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> 上一页</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; 版权所有 2024, Alex Xiong。</p>
+  </div>
+
+  利用 <a href="https://www.sphinx-doc.org/">Sphinx</a> 构建，使用的 
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">主题</a>
+    由 <a href="https://readthedocs.org">Read the Docs</a> 开发.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
