@@ -14,3 +14,5 @@
    BFC Allocator
    malloc
    Nvidia GPU Memory Pool-BFC
+   memory system call
+   hot-n-cold page
