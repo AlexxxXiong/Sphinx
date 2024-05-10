@@ -11,4 +11,6 @@
   
 
    TFLite memory
-
+   BFC Allocator
+   malloc
+   Nvidia GPU Memory Pool-BFC

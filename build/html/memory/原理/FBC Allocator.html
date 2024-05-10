@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="zh-CN" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TensorFlow中的显存管理器——BFC Allocator &mdash; Mylab v1 文档</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=92fd9be5" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=19f00094" />
+
+  
+  <!--[if lt IE 9]>
+    <script src="../../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="../../_static/jquery.js?v=5d32c60e"></script>
+        <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+        <script src="../../_static/documentation_options.js?v=181ac3c6"></script>
+        <script src="../../_static/doctools.js?v=9a2dae69"></script>
+        <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+        <script src="../../_static/translations.js?v=beaddf03"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="索引" href="../../genindex.html" />
+    <link rel="search" title="搜索" href="../../search.html" />
+    <link rel="prev" title="优化 TensorFlow Lite 运行时内存" href="TFLite%20memory.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            Mylab
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="搜索文档" aria-label="搜索文档" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="导航菜单">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../Tools/index.html">工具合集</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">内存相关信息</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="index.html">原理</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="TFLite%20memory.html"><strong>优化 TensorFlow Lite 运行时内存</strong></a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">TensorFlow中的显存管理器——BFC Allocator </a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#tensor">从Tensor的创建谈起</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id2">1. <strong>模型定义时</strong></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id3">2. <strong>模型编译时</strong></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id4">3. <strong>加载模型数据时</strong></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id5">4. <strong>执行推理时</strong></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id6">5. <strong>后处理</strong></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id7">遇到的问题——显存分配与回收的性能需求</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="移动版导航菜单" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">Mylab</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="页面导航">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">内存相关信息</a></li>
+          <li class="breadcrumb-item"><a href="index.html">原理</a></li>
+      <li class="breadcrumb-item active">TensorFlow中的显存管理器——BFC Allocator </li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/Memory/原理/FBC Allocator.md.txt" rel="nofollow"> 查看页面源码</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="tensorflowbfc-allocator">
+<h1><a class="reference external" href="https://www.cnblogs.com/deep-learning-stacks/p/10741859.html">TensorFlow中的显存管理器——BFC Allocator </a><a class="headerlink" href="#tensorflowbfc-allocator" title="Link to this heading"></a></h1>
+<p>使用GPU训练时，一次训练任务无论是模型参数还是中间结果都需要占用大量显存。为了避免每次训练重新开辟显存带来计算之外的开销，一般框架的做法是在真正的训练任务开始前，将每个节点的输入和输出，以及模型参数的shape计算出来并全局开辟一次，例如Caffe就是这种做法。</p>
+<p>随着深度学习模型的发展和迭代，不仅模型训练的数据shape可能发生变化，就连模型本身在训练过程中也可能发生变化，那么按照固定shape一次开辟显存的做法就不能满足需求了。</p>
+<p>为此，TensorFlow重新设计了较为灵活的显存管理机制，它使用了名为BFC的分配算法，并通过BFC Allocator为每个Tensor分配满足需求的显存。本节我们将一起窥探BFC Allocator的设计思想。</p>
+<section id="tensor">
+<h2>从Tensor的创建谈起<a class="headerlink" href="#tensor" title="Link to this heading"></a></h2>
+<section id="id1">
+<h3>为Tensor分配存储区的时机<a class="headerlink" href="#id1" title="Link to this heading"></a></h3>
+<p>在进入主题之前，让我们先思考一个问题：TensorFlow中的Tensor究竟是何时拿到所需存储区的呢？<strong>答案是在Tensor对象被创建时就立即进行分配。</strong></p>
+<p><strong>在TensorFlow的一轮训练结束后，所有的Tensor都已经被释放，下一轮计算开始后会按照需求重新创建Tensor，并为其分配新的存储空间。</strong></p>
+<p>下面的代码片段中我们可以看到Tensor创建时，使用Allocator分配存储区的代码段。</p>
+<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="err">&#39;&#39;&#39;</span>
+<span class="n">Allocator</span><span class="o">*</span><span class="w"> </span><span class="n">a</span><span class="o">:</span><span class="w"> </span><span class="n">指向一个分配器对象的指针</span><span class="err">，</span><span class="n">该分配器用于管理内存分配</span><span class="err">。</span>
+<span class="n">DataType</span><span class="w"> </span><span class="n">type</span><span class="o">:</span><span class="w"> </span><span class="n">表示张量的数据类型</span><span class="err">，</span><span class="n">如浮点数</span><span class="err">、</span><span class="n">整数等</span><span class="err">。</span>
+<span class="k">const</span><span class="w"> </span><span class="n">TensorShape</span><span class="o">&amp;</span><span class="w"> </span><span class="n">shape</span><span class="o">:</span><span class="w"> </span><span class="n">表示张量的形状</span><span class="err">，</span><span class="n">即它的维度信息</span><span class="err">。</span>
+<span class="err">&#39;&#39;&#39;</span><span class="w"> </span>
+
+<span class="n">Tensor</span><span class="o">::</span><span class="n">Tensor</span><span class="p">(</span><span class="n">Allocator</span><span class="o">*</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">DataType</span><span class="w"> </span><span class="n">type</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">TensorShape</span><span class="o">&amp;</span><span class="w"> </span><span class="n">shape</span><span class="p">)</span>
+<span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="n">shape_</span><span class="p">(</span><span class="n">shape</span><span class="p">),</span><span class="w"> </span><span class="n">buf_</span><span class="p">(</span><span class="n">nullptr</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="n">set_dtype</span><span class="p">(</span><span class="n">type</span><span class="p">);</span>
+<span class="n">CHECK_NOTNULL</span><span class="p">(</span><span class="n">a</span><span class="p">);</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">shape_</span><span class="p">.</span><span class="n">num_elements</span><span class="p">()</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="n">a</span><span class="o">-&gt;</span><span class="n">ShouldAllocateEmptyTensors</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">  </span><span class="c1">// 条件内存分配</span>
+<span class="w"> </span><span class="n">CASES</span><span class="p">(</span><span class="n">type</span><span class="p">,</span><span class="w"> </span><span class="n">buf_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">new</span><span class="w"> </span><span class="n">Buffer</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="p">(</span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">shape</span><span class="p">.</span><span class="n">num_elements</span><span class="p">()));</span><span class="w">  </span><span class="c1">// 这一行是一个宏或模板，根据数据类型 type 创建一个适当类型的 Buffer&lt;T&gt; 对象，并初始化 buf_</span>
+<span class="p">}</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">buf_</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">nullptr</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">buf_</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">()</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">nullptr</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">LogMemory</span><span class="o">::</span><span class="n">IsEnabled</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="w"> </span><span class="n">LogMemory</span><span class="o">::</span><span class="n">RecordTensorAllocation</span><span class="p">(</span><span class="s">&quot;Unknown&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">LogMemory</span><span class="o">::</span><span class="n">UNKNOWN_STEP_ID</span><span class="p">,</span><span class="w">   </span><span class="c1">// 用于记录分配事件</span>
+<span class="w">                                   </span><span class="o">*</span><span class="n">this</span><span class="p">);</span>
+<span class="p">}</span>
+<span class="p">}</span>
+
+<span class="n">Template</span><span class="w"> </span><span class="o">&lt;</span><span class="n">typename</span><span class="w"> </span><span class="n">T</span><span class="o">&gt;</span>
+<span class="n">Buffer</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;::</span><span class="n">Buffer</span><span class="p">(</span><span class="n">Allocator</span><span class="o">*</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">int64</span><span class="w"> </span><span class="n">n</span><span class="p">,</span>
+<span class="w">               </span><span class="k">const</span><span class="w"> </span><span class="n">AllocationAttributes</span><span class="o">&amp;</span><span class="w"> </span><span class="n">allocation_attr</span><span class="p">)</span>
+<span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="n">BufferBase</span><span class="p">(</span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">a</span><span class="o">-&gt;</span><span class="n">Allocate</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="p">(</span><span class="n">n</span><span class="p">,</span><span class="w"> </span><span class="n">allocation_attr</span><span class="p">)),</span><span class="w"> </span><span class="n">elem_</span><span class="p">(</span><span class="n">n</span><span class="p">)</span><span class="w"> </span><span class="p">{}</span>
+<span class="c1">// 因为在此处调用了Allocate函数，此时Buffer真正获得了一片实际的存储区。这已经能够说明存储区分配的时机是在一个Tensor对象被创建时立即发生的。</span>
+</pre></div>
+</div>
+<p>以下是一些关键时刻，这些张量会被创建：</p>
+</section>
+</section>
+<section id="id2">
+<h2>1. <strong>模型定义时</strong><a class="headerlink" href="#id2" title="Link to this heading"></a></h2>
+<p>在定义 MLP 模型时，你需要指定模型的结构，包括各层的类型、大小和连接方式。此时，会创建与模型参数（权重和偏置）相关的张量。这些张量通常在模型的初始化阶段就已经定义好，并在训练过程中被优化。例如，每个全连接层（dense layer）都会有相应的权重和偏置张量。</p>
+</section>
+<section id="id3">
+<h2>2. <strong>模型编译时</strong><a class="headerlink" href="#id3" title="Link to this heading"></a></h2>
+<p>当你编译 TensorFlow 模型（通过 <code class="docutils literal notranslate"><span class="pre">model.compile()</span></code> 调用），准备它们进行训练或推理时，会设置损失函数、优化器和评价指标。这一步骤可能不直接创建张量，但会准备必要的基础设施，例如梯度张量，这些张量用于在训练期间更新权重。</p>
+</section>
+<section id="id4">
+<h2>3. <strong>加载模型数据时</strong><a class="headerlink" href="#id4" title="Link to this heading"></a></h2>
+<p>在进行推理之前，你需要加载或指定输入数据。输入数据在送入模型前通常被封装为一个张量。这是在推理或训练过程开始前的一步，确保所有输入数据都以正确的形式（尺寸和类型）被处理。</p>
+</section>
+<section id="id5">
+<h2>4. <strong>执行推理时</strong><a class="headerlink" href="#id5" title="Link to this heading"></a></h2>
+<p>在模型推理（或称为前向传播）过程中，数据会通过模型的各层。每一层都会对输入数据执行计算，并生成输出数据，这些数据同样被存储在张量中。例如，一个典型的全连接层会计算 <code class="docutils literal notranslate"><span class="pre">output</span> <span class="pre">=</span> <span class="pre">activation(dot(input,</span> <span class="pre">kernel)</span> <span class="pre">+</span> <span class="pre">bias)</span></code>，其中 <code class="docutils literal notranslate"><span class="pre">input</span></code>, <code class="docutils literal notranslate"><span class="pre">kernel</span></code> (权重), 和 <code class="docutils literal notranslate"><span class="pre">bias</span></code> 都是张量，<code class="docutils literal notranslate"><span class="pre">output</span></code> 也会被存储为一个新的张量。</p>
+</section>
+<section id="id6">
+<h2>5. <strong>后处理</strong><a class="headerlink" href="#id6" title="Link to this heading"></a></h2>
+<p>在得到最终的输出后，可能还需要对这些输出进行进一步的处理，如应用 softmax 函数来获取概率分布。这一步骤可能会创建新的张量来存储处理后的结果。</p>
+</section>
+<section id="id7">
+<h2>遇到的问题——显存分配与回收的性能需求<a class="headerlink" href="#id7" title="Link to this heading"></a></h2>
+<p>Tensor在每次创建时会得到存储区域，而每一轮训练都要重新创建新的Tensor，那么这里面临的一个问题：**如此频繁的分配和回收存储区，如何才能做的高效？**试想对于GPU来说，如果Allocate函数直接封装CUDA中昂贵的cudaMalloc函数，当Tensor被释放时直接调用cudaFree函数，那么训练速度将会因为这些overhead大打折扣。</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="页脚">
+        <a href="TFLite%20memory.html" class="btn btn-neutral float-left" title="优化 TensorFlow Lite 运行时内存" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> 上一页</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; 版权所有 2024, Alex Xiong。</p>
+  </div>
+
+  利用 <a href="https://www.sphinx-doc.org/">Sphinx</a> 构建，使用的 
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">主题</a>
+    由 <a href="https://readthedocs.org">Read the Docs</a> 开发.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

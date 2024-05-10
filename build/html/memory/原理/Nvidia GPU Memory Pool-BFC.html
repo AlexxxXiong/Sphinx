@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="zh-CN" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nvidia GPU Memory Pool-BFC &mdash; Mylab v1 文档</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=92fd9be5" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=19f00094" />
+
+  
+  <!--[if lt IE 9]>
+    <script src="../../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="../../_static/jquery.js?v=5d32c60e"></script>
+        <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+        <script src="../../_static/documentation_options.js?v=181ac3c6"></script>
+        <script src="../../_static/doctools.js?v=9a2dae69"></script>
+        <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+        <script src="../../_static/translations.js?v=beaddf03"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="索引" href="../../genindex.html" />
+    <link rel="search" title="搜索" href="../../search.html" />
+    <link rel="prev" title="&lt;no title&gt;" href="malloc.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            Mylab
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="搜索文档" aria-label="搜索文档" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="导航菜单">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../Tools/index.html">工具合集</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">内存相关信息</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="index.html">原理</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="TFLite%20memory.html"><strong>优化 TensorFlow Lite 运行时内存</strong></a></li>
+<li class="toctree-l3"><a class="reference internal" href="BFC%20Allocator.html">TensorFlow中的显存管理器——BFC Allocator </a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">Nvidia GPU Memory Pool-BFC</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#linux">1.1 Linux内核内存池</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="移动版导航菜单" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">Mylab</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="页面导航">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">内存相关信息</a></li>
+          <li class="breadcrumb-item"><a href="index.html">原理</a></li>
+      <li class="breadcrumb-item active">Nvidia GPU Memory Pool-BFC</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/Memory/原理/Nvidia GPU Memory Pool-BFC.md.txt" rel="nofollow"> 查看页面源码</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="nvidia-gpu-memory-pool-bfc">
+<h1>Nvidia GPU Memory Pool-BFC<a class="headerlink" href="#nvidia-gpu-memory-pool-bfc" title="Link to this heading"></a></h1>
+<hr class="docutils" />
+<p>内存池是linux系统中一种高效的内存管理机制。它预先分配一定数量的内存块并形成一个池，以便在需要内存时可以快速分配内存。与传统的内存分配方式相比，内存池管理可以大大提高内存分配和释放的效率，减少内存碎片的产生。</p>
+<section id="linux">
+<h2>1.1 Linux内核内存池<a class="headerlink" href="#linux" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>Buddy 系统</strong>：操作系统通常使用 <code class="docutils literal notranslate"><span class="pre">Buddy</span></code> 系统来分配和管理内存块。然而，<code class="docutils literal notranslate"><span class="pre">Buddy</span></code> 系统更适合管理大块内存，对于小对象的频繁分配与释放效率较低。</p></li>
+<li><p><strong>内存碎片</strong>：频繁的小对象分配和释放容易导致大量内存碎片，降低内存利用效率。</p></li>
+</ul>
+<p>在linux内核中，内存池管理主要采用以下两种方法：</p>
+<section id="buddy-system">
+<h3>(1) Buddy System<a class="headerlink" href="#buddy-system" title="Link to this heading"></a></h3>
+<p>伙伴系统以页为单位管理和分配内存。内存池中所有内存块的大小为2^n。</p>
+<p>它将所有空闲页框分组到11个块链表中。</p>
+<p>每个块链表包含大小为1、2、4、8、16、32、64、128、256、512和1024个连续页框的页框块。</p>
+<p>当需要分配一块内存时，分配器会在内存池中找到最小的可用块，并将其分配给用户。</p>
+<p>当不再使用某个内存块时，分配器将释放它并检查其“兄弟块”。</p>
+<p>如果兄弟块也空闲，则将它们合并成一个大块，并继续向上检查，直到无法再合并为止。</p>
+<p>buddy系统的优点是可以减少内存碎片的产生，同时也提高了内存分配的效率。</p>
+<p>然而，这种方法也有一些缺点。例如，大小不规则的内存块的分配和释放不方便，还可能存在内存的浪费。</p>
+</section>
+<section id="slab-allocator">
+<h3>(2) Slab Allocator<a class="headerlink" href="#slab-allocator" title="Link to this heading"></a></h3>
+<p>slab分配器是在buddy系统分配的大内存的基础上进一步细化的小内存分配方法。</p>
+<p>主要针对一些经常分配和释放的小对象，通常是内核数据结构。</p>
+<p><strong>每当申请这样的对象时，slab分配器就会从slab列表中分配一个这个大小的单元，</strong></p>
+<p><strong>当它被释放时，再次将其保存在列表中，而不是直接返回给伙伴系统，从而避免内部碎片。</strong></p>
+<p>lab分配器可以高效地处理频繁申请和释放小对象（例如内核数据结构）的内存事务。</p>
+<p>同时，可以显着节省内存空间，避免过多的内存碎片。</p>
+<section id="slab">
+<h4>Slab 分配器的结构与工作机制<a class="headerlink" href="#slab" title="Link to this heading"></a></h4>
+<ol class="simple">
+<li><p><strong>Slab、Cache 和 Object</strong></p>
+<ul class="simple">
+<li><p><strong>Slab</strong>：由一块连续的物理内存区域组成，包含若干固定大小的对象。</p></li>
+<li><p><strong>Cache</strong>：由多个 Slab 组成，针对特定类型的小对象（如内核数据结构）进行优化管理。</p></li>
+<li><p><strong>Object</strong>：实际的小对象，保存在 Slab 内。</p></li>
+</ul>
+</li>
+<li><p><strong>分配与释放流程</strong></p>
+<ul class="simple">
+<li><p><strong>分配对象</strong>：</p>
+<ul>
+<li><p>当请求一个小对象时，Slab 分配器会从目标 Cache 中的 Slab 列表中分配一个空闲对象。</p></li>
+<li><p>如果当前 Cache 中没有空闲的 Slab，可以从 <code class="docutils literal notranslate"><span class="pre">Buddy</span></code> 系统申请一个新的 Slab，并将其添加到 Cache 中。</p></li>
+<li><p>分配成功的对象会标记为已使用状态。</p></li>
+</ul>
+</li>
+<li><p><strong>释放对象</strong>：</p>
+<ul>
+<li><p>当对象被释放时，Slab 分配器将其标记为可用，并返回到相应的 Slab。</p></li>
+<li><p>该对象不会立即归还给 <code class="docutils literal notranslate"><span class="pre">Buddy</span></code> 系统，而是保持在 Cache 中以供后续分配使用。</p></li>
+<li><p>如果一个 Slab 中的所有对象都空闲，则该 Slab 可以被归还给 <code class="docutils literal notranslate"><span class="pre">Buddy</span></code> 系统。</p></li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p><strong>避免内部碎片</strong></p>
+<ul class="simple">
+<li><p><strong>保持对象池</strong>：对象释放后保持在 Cache 中而不是直接归还给 <code class="docutils literal notranslate"><span class="pre">Buddy</span></code> 系统，从而避免内部碎片。</p></li>
+<li><p><strong>预分配对象池</strong>：每个 Cache 都有一个预分配对象池（即空闲对象列表），减少频繁的分配与释放操作。</p></li>
+</ul>
+</li>
+</ol>
+</section>
+</section>
+<section id="id1">
+<h3>主要优点<a class="headerlink" href="#id1" title="Link to this heading"></a></h3>
+<ol class="simple">
+<li><p><strong>效率高</strong>：</p>
+<ul class="simple">
+<li><p><strong>频繁分配和释放</strong>：针对内核数据结构等频繁分配和释放的小对象操作提供优化。</p></li>
+<li><p><strong>预分配对象池</strong>：对象池中的对象可以快速重复使用。</p></li>
+</ul>
+</li>
+<li><p><strong>内存节省</strong>：</p>
+<ul class="simple">
+<li><p><strong>减少内存碎片</strong>：通过保持对象池避免了直接归还给 <code class="docutils literal notranslate"><span class="pre">Buddy</span></code> 系统而产生的内部碎片。</p></li>
+<li><p><strong>对象重用</strong>：保持对象池中的对象以供快速分配和重用。</p></li>
+</ul>
+</li>
+</ol>
+</section>
+<section id="id2">
+<h3>总结<a class="headerlink" href="#id2" title="Link to this heading"></a></h3>
+<p>这段话主要强调了以下内容：</p>
+<ol>
+<li><p><strong>Slab 分配器的作用</strong>：针对频繁分配和释放的小对象提供更高效的内存管理。</p></li>
+<li><p><strong>工作机制</strong>：保持对象池避免内部碎片，快速分配与释放对象。</p></li>
+<li><p>优势</p>
+<p>：</p>
+<ul class="simple">
+<li><p>避免直接归还给 <code class="docutils literal notranslate"><span class="pre">Buddy</span></code> 系统导致的内部碎片。</p></li>
+<li><p>高效处理频繁的小对象内存事务。</p></li>
+</ul>
+</li>
+</ol>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="页脚">
+        <a href="malloc.html" class="btn btn-neutral float-left" title="&lt;no title&gt;" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> 上一页</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; 版权所有 2024, Alex Xiong。</p>
+  </div>
+
+  利用 <a href="https://www.sphinx-doc.org/">Sphinx</a> 构建，使用的 
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">主题</a>
+    由 <a href="https://readthedocs.org">Read the Docs</a> 开发.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

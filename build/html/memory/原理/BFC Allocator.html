@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="zh-CN" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TensorFlow中的显存管理器——BFC Allocator &mdash; Mylab v1 文档</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=92fd9be5" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=19f00094" />
+
+  
+  <!--[if lt IE 9]>
+    <script src="../../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="../../_static/jquery.js?v=5d32c60e"></script>
+        <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+        <script src="../../_static/documentation_options.js?v=181ac3c6"></script>
+        <script src="../../_static/doctools.js?v=9a2dae69"></script>
+        <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+        <script src="../../_static/translations.js?v=beaddf03"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="索引" href="../../genindex.html" />
+    <link rel="search" title="搜索" href="../../search.html" />
+    <link rel="next" title="&lt;no title&gt;" href="malloc.html" />
+    <link rel="prev" title="优化 TensorFlow Lite 运行时内存" href="TFLite%20memory.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            Mylab
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="搜索文档" aria-label="搜索文档" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="导航菜单">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../Tools/index.html">工具合集</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">内存相关信息</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="index.html">原理</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="TFLite%20memory.html"><strong>优化 TensorFlow Lite 运行时内存</strong></a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">TensorFlow中的显存管理器——BFC Allocator </a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#tensor">从Tensor的创建谈起</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id2">张量创建</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id8">遇到的问题——显存分配与回收的性能需求</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id9">解决问题的基本思路——存储池</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id10"></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id14">BFC Allocator基本原理</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#bfc">BFC分配与回收策略</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#allow-growth">Allow Growth</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="移动版导航菜单" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">Mylab</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="页面导航">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">内存相关信息</a></li>
+          <li class="breadcrumb-item"><a href="index.html">原理</a></li>
+      <li class="breadcrumb-item active">TensorFlow中的显存管理器——BFC Allocator </li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/Memory/原理/BFC Allocator.md.txt" rel="nofollow"> 查看页面源码</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="tensorflowbfc-allocator">
+<h1><a class="reference external" href="https://www.cnblogs.com/deep-learning-stacks/p/10741859.html">TensorFlow中的显存管理器——BFC Allocator </a><a class="headerlink" href="#tensorflowbfc-allocator" title="Link to this heading"></a></h1>
+<p>使用GPU训练时，一次训练任务无论是模型参数还是中间结果都需要占用大量显存。为了避免每次训练重新开辟显存带来计算之外的开销，一般框架的做法是在真正的训练任务开始前，将每个节点的输入和输出，以及模型参数的shape计算出来并全局开辟一次，例如Caffe就是这种做法。</p>
+<p>随着深度学习模型的发展和迭代，不仅模型训练的数据shape可能发生变化，就连模型本身在训练过程中也可能发生变化，那么按照固定shape一次开辟显存的做法就不能满足需求了。</p>
+<p>为此，TensorFlow重新设计了较为灵活的显存管理机制，它使用了名为BFC的分配算法，并通过BFC Allocator为每个Tensor分配满足需求的显存。本节我们将一起窥探BFC Allocator的设计思想。</p>
+<section id="tensor">
+<h2>从Tensor的创建谈起<a class="headerlink" href="#tensor" title="Link to this heading"></a></h2>
+<section id="id1">
+<h3>为Tensor分配存储区的时机<a class="headerlink" href="#id1" title="Link to this heading"></a></h3>
+<p>在进入主题之前，让我们先思考一个问题：TensorFlow中的Tensor究竟是何时拿到所需存储区的呢？<strong>答案是在Tensor对象被创建时就立即进行分配。</strong></p>
+<p><strong>在TensorFlow的一轮训练结束后，所有的Tensor都已经被释放，下一轮计算开始后会按照需求重新创建Tensor，并为其分配新的存储空间。</strong></p>
+<p>下面的代码片段中我们可以看到Tensor创建时，使用Allocator分配存储区的代码段。</p>
+<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="err">&#39;&#39;&#39;</span>
+<span class="n">Allocator</span><span class="o">*</span><span class="w"> </span><span class="n">a</span><span class="o">:</span><span class="w"> </span><span class="n">指向一个分配器对象的指针</span><span class="err">，</span><span class="n">该分配器用于管理内存分配</span><span class="err">。</span>
+<span class="n">DataType</span><span class="w"> </span><span class="n">type</span><span class="o">:</span><span class="w"> </span><span class="n">表示张量的数据类型</span><span class="err">，</span><span class="n">如浮点数</span><span class="err">、</span><span class="n">整数等</span><span class="err">。</span>
+<span class="k">const</span><span class="w"> </span><span class="n">TensorShape</span><span class="o">&amp;</span><span class="w"> </span><span class="n">shape</span><span class="o">:</span><span class="w"> </span><span class="n">表示张量的形状</span><span class="err">，</span><span class="n">即它的维度信息</span><span class="err">。</span>
+<span class="err">&#39;&#39;&#39;</span><span class="w"> </span>
+
+<span class="n">Tensor</span><span class="o">::</span><span class="n">Tensor</span><span class="p">(</span><span class="n">Allocator</span><span class="o">*</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">DataType</span><span class="w"> </span><span class="n">type</span><span class="p">,</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">TensorShape</span><span class="o">&amp;</span><span class="w"> </span><span class="n">shape</span><span class="p">)</span>
+<span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="n">shape_</span><span class="p">(</span><span class="n">shape</span><span class="p">),</span><span class="w"> </span><span class="n">buf_</span><span class="p">(</span><span class="n">nullptr</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="n">set_dtype</span><span class="p">(</span><span class="n">type</span><span class="p">);</span>
+<span class="n">CHECK_NOTNULL</span><span class="p">(</span><span class="n">a</span><span class="p">);</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">shape_</span><span class="p">.</span><span class="n">num_elements</span><span class="p">()</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="n">a</span><span class="o">-&gt;</span><span class="n">ShouldAllocateEmptyTensors</span><span class="p">())</span><span class="w"> </span><span class="p">{</span><span class="w">  </span><span class="c1">// 条件内存分配</span>
+<span class="w"> </span><span class="n">CASES</span><span class="p">(</span><span class="n">type</span><span class="p">,</span><span class="w"> </span><span class="n">buf_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">new</span><span class="w"> </span><span class="n">Buffer</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="p">(</span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">shape</span><span class="p">.</span><span class="n">num_elements</span><span class="p">()));</span><span class="w">  </span><span class="c1">// 这一行是一个宏或模板，根据数据类型 type 创建一个适当类型的 Buffer&lt;T&gt; 对象，并初始化 buf_</span>
+<span class="p">}</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">buf_</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">nullptr</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">buf_</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">()</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">nullptr</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">LogMemory</span><span class="o">::</span><span class="n">IsEnabled</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="w"> </span><span class="n">LogMemory</span><span class="o">::</span><span class="n">RecordTensorAllocation</span><span class="p">(</span><span class="s">&quot;Unknown&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">LogMemory</span><span class="o">::</span><span class="n">UNKNOWN_STEP_ID</span><span class="p">,</span><span class="w">   </span><span class="c1">// 用于记录分配事件</span>
+<span class="w">                                   </span><span class="o">*</span><span class="n">this</span><span class="p">);</span>
+<span class="p">}</span>
+<span class="p">}</span>
+
+<span class="n">Template</span><span class="w"> </span><span class="o">&lt;</span><span class="n">typename</span><span class="w"> </span><span class="n">T</span><span class="o">&gt;</span>
+<span class="n">Buffer</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;::</span><span class="n">Buffer</span><span class="p">(</span><span class="n">Allocator</span><span class="o">*</span><span class="w"> </span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">int64</span><span class="w"> </span><span class="n">n</span><span class="p">,</span>
+<span class="w">               </span><span class="k">const</span><span class="w"> </span><span class="n">AllocationAttributes</span><span class="o">&amp;</span><span class="w"> </span><span class="n">allocation_attr</span><span class="p">)</span>
+<span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="n">BufferBase</span><span class="p">(</span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">a</span><span class="o">-&gt;</span><span class="n">Allocate</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="p">(</span><span class="n">n</span><span class="p">,</span><span class="w"> </span><span class="n">allocation_attr</span><span class="p">)),</span><span class="w"> </span><span class="n">elem_</span><span class="p">(</span><span class="n">n</span><span class="p">)</span><span class="w"> </span><span class="p">{}</span>
+<span class="c1">// 因为在此处调用了Allocate函数，此时Buffer真正获得了一片实际的存储区。这已经能够说明存储区分配的时机是在一个Tensor对象被创建时立即发生的。</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="id2">
+<h2>张量创建<a class="headerlink" href="#id2" title="Link to this heading"></a></h2>
+<p>以下是一些关键时刻，这些张量会被创建：</p>
+<section id="id3">
+<h3>1. <strong>模型定义时</strong><a class="headerlink" href="#id3" title="Link to this heading"></a></h3>
+<p>在定义 MLP 模型时，你需要指定模型的结构，包括各层的类型、大小和连接方式。此时，会创建与模型参数（权重和偏置）相关的张量。这些张量通常在模型的初始化阶段就已经定义好，并在训练过程中被优化。例如，每个全连接层（dense layer）都会有相应的权重和偏置张量。</p>
+</section>
+<section id="id4">
+<h3>2. <strong>模型编译时</strong><a class="headerlink" href="#id4" title="Link to this heading"></a></h3>
+<p>当你编译 TensorFlow 模型（通过 <code class="docutils literal notranslate"><span class="pre">model.compile()</span></code> 调用），准备它们进行训练或推理时，会设置损失函数、优化器和评价指标。这一步骤可能不直接创建张量，但会准备必要的基础设施，例如梯度张量，这些张量用于在训练期间更新权重。</p>
+</section>
+<section id="id5">
+<h3>3. <strong>加载模型数据时</strong><a class="headerlink" href="#id5" title="Link to this heading"></a></h3>
+<p>在进行推理之前，你需要加载或指定输入数据。输入数据在送入模型前通常被封装为一个张量。这是在推理或训练过程开始前的一步，确保所有输入数据都以正确的形式（尺寸和类型）被处理。</p>
+</section>
+<section id="id6">
+<h3>4. <strong>执行推理时</strong><a class="headerlink" href="#id6" title="Link to this heading"></a></h3>
+<p>在模型推理（或称为前向传播）过程中，数据会通过模型的各层。每一层都会对输入数据执行计算，并生成输出数据，这些数据同样被存储在张量中。例如，一个典型的全连接层会计算 <code class="docutils literal notranslate"><span class="pre">output</span> <span class="pre">=</span> <span class="pre">activation(dot(input,</span> <span class="pre">kernel)</span> <span class="pre">+</span> <span class="pre">bias)</span></code>，其中 <code class="docutils literal notranslate"><span class="pre">input</span></code>, <code class="docutils literal notranslate"><span class="pre">kernel</span></code> (权重), 和 <code class="docutils literal notranslate"><span class="pre">bias</span></code> 都是张量，<code class="docutils literal notranslate"><span class="pre">output</span></code> 也会被存储为一个新的张量。</p>
+</section>
+<section id="id7">
+<h3>5. <strong>后处理</strong><a class="headerlink" href="#id7" title="Link to this heading"></a></h3>
+<p>在得到最终的输出后，可能还需要对这些输出进行进一步的处理，如应用 softmax 函数来获取概率分布。这一步骤可能会创建新的张量来存储处理后的结果。</p>
+</section>
+</section>
+<section id="id8">
+<h2>遇到的问题——显存分配与回收的性能需求<a class="headerlink" href="#id8" title="Link to this heading"></a></h2>
+<p>Tensor在每次创建时会得到存储区域，而每一轮训练都要重新创建新的Tensor，那么这里面临的一个问题：**如此频繁的分配和回收存储区，如何才能做的高效？**试想对于GPU来说，如果Allocate函数直接封装CUDA中昂贵的cudaMalloc函数，当Tensor被释放时直接调用cudaFree函数，那么训练速度将会因为这些overhead大打折扣。</p>
+</section>
+<section id="id9">
+<h2>解决问题的基本思路——存储池<a class="headerlink" href="#id9" title="Link to this heading"></a></h2>
+<p>如果你对操作系统这门课比较熟悉，那么应该很容易想到解决办法：**将显存按照不同的大小一次性开辟出来，并组成存储池，每次调用Allocate函数时从存储池中获取，Tensor回收时将显存重新挂到存储池中。**这样做确实可以满足性能需求，但是需要为此设计一个相对复杂的存储管理器。BFC Allocator就是TensorFlow中管理GPU显存的存储管理器。</p>
+<p>好了，需求和背景都已经了解了，接下来可以进入正题了，让我们先从原理开始说起。</p>
+</section>
+<section id="id10">
+<h2><a class="headerlink" href="#id10" title="Link to this heading"></a></h2>
+<section id="bfc-allocator">
+<h3>BFC Allocator 的关键特性<a class="headerlink" href="#bfc-allocator" title="Link to this heading"></a></h3>
+<ol class="simple">
+<li><p><strong>Best-Fit</strong>（最佳适配）：</p>
+<ul class="simple">
+<li><p>每次分配内存时，分配器尝试找到能满足请求大小的最小可用块（最佳适配策略）。</p></li>
+<li><p>这样可以尽量减少内存碎片。</p></li>
+</ul>
+</li>
+<li><p><strong>Coalescing</strong>（合并）：</p>
+<ul class="simple">
+<li><p>当释放一个块时，尝试与相邻的空闲块合并以形成更大的空闲块，从而减少内存碎片。</p></li>
+</ul>
+</li>
+<li><p><strong>Bin System</strong>（Bin 系统）：</p>
+<ul class="simple">
+<li><p>使用多个 Bin 来组织不同大小的内存块。</p></li>
+<li><p>每个 Bin 中的块大小相近。</p></li>
+<li><p>每个 Bin 内部使用有序的集合（例如 <code class="docutils literal notranslate"><span class="pre">std::set</span></code>）来存储 <code class="docutils literal notranslate"><span class="pre">Chunk</span></code>。</p></li>
+</ul>
+</li>
+<li><p><strong>Chunk</strong>：</p>
+<ul class="simple">
+<li><p>内存块的基本单元，包含指针、大小、状态等信息。</p></li>
+</ul>
+</li>
+</ol>
+</section>
+<section id="id11">
+<h3>BFC Allocator 的结构<a class="headerlink" href="#id11" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Chunk</strong>：每个 <code class="docutils literal notranslate"><span class="pre">Chunk</span></code> 代表一个内存块，包含指向实际内存的指针，以及块的大小等属性。</p></li>
+<li><p><strong>Bin</strong>：每个 Bin 维护一组相似大小的内存块，以方便检索和管理。</p></li>
+<li><p><strong>Free List</strong>：每个 Bin 内部维护一个空闲块的集合，方便寻找适合的块。</p></li>
+</ul>
+</section>
+<section id="id12">
+<h3>BFC Allocator 内存分配流程<a class="headerlink" href="#id12" title="Link to this heading"></a></h3>
+<ol class="simple">
+<li><p><strong>找到合适的 Bin</strong>：</p>
+<ul class="simple">
+<li><p>根据请求的大小，确定应使用哪个 Bin。</p></li>
+<li><p>不同 Bin 存储不同大小范围的内存块。</p></li>
+</ul>
+</li>
+<li><p><strong>寻找最佳适配块</strong>：</p>
+<ul class="simple">
+<li><p>在合适的 Bin 中找到能满足请求的最小空闲块。</p></li>
+<li><p>若找到的块比请求的块大，则进行拆分，将剩余部分放回空闲列表。</p></li>
+</ul>
+</li>
+<li><p><strong>分配块</strong>：</p>
+<ul class="simple">
+<li><p>更新 <code class="docutils literal notranslate"><span class="pre">Chunk</span></code> 状态为已分配。</p></li>
+<li><p>返回 <code class="docutils literal notranslate"><span class="pre">Chunk</span></code> 中的指针以供使用。</p></li>
+</ul>
+</li>
+</ol>
+</section>
+<section id="id13">
+<h3>BFC Allocator 内存释放流程<a class="headerlink" href="#id13" title="Link to this heading"></a></h3>
+<ol class="simple">
+<li><p><strong>标记块为已释放</strong>：</p>
+<ul class="simple">
+<li><p>找到对应的 <code class="docutils literal notranslate"><span class="pre">Chunk</span></code>，标记其状态为已释放。</p></li>
+</ul>
+</li>
+<li><p><strong>合并相邻块</strong>：</p>
+<ul class="simple">
+<li><p>尝试与相邻的空闲块合并成更大的块。</p></li>
+<li><p>更新前驱和后继指针以维持双向链表的逻辑顺序。</p></li>
+</ul>
+</li>
+<li><p><strong>放回空闲列表</strong>：</p>
+<ul class="simple">
+<li><p>将合并后的块放回合适的 Bin 中。</p></li>
+</ul>
+</li>
+</ol>
+<p>Best-Fit with Coalescing与dlmalloc</p>
+<p>BFC的全称是Best-Fit with Coalescing。最适合合并。</p>
+<p>从TensorFlow源码注释中得知，BFC算法并非TensorFlow完全原创，而是dlmalloc的一个简单实现版本。dlmalloc是一款优秀的存储分配器，它以Doug Lea的名字命名。之所以在TensorFlow中引入一个简单版本的dlmalloc算法，是因为该算法可以非常高效的按需分配和回收存储区，并尽可能减少存储碎片。</p>
+</section>
+</section>
+<section id="id14">
+<h2>BFC Allocator基本原理<a class="headerlink" href="#id14" title="Link to this heading"></a></h2>
+<p>核心在于将存储区划分成块，并挂入存储池中进行管理。将存储区划分成存储块时要满足以下要求。</p>
+<ol class="simple">
+<li><p><strong>块内地址是连续地址</strong></p></li>
+<li><p><strong>存储池中的块要以每个块基地址升序排列，并组织成双向链表</strong></p></li>
+<li><p><strong>高地址块的size大于低地址块的size</strong></p></li>
+</ol>
+<p>TensorFlow将存储块以及相应的块信息抽象为一种叫做Chunk的数据结构。</p>
+<section id="id15">
+<h3>核心数据结构<a class="headerlink" href="#id15" title="Link to this heading"></a></h3>
+<section id="chunk">
+<h4>Chunk<a class="headerlink" href="#chunk" title="Link to this heading"></a></h4>
+<p>Chunk是BFC最核心的数据结构之一，在TensorFlow源码中是以struct来描述的。具体来说，一个Chunk代表一段连续的存储空间，BFC要求各个Chunk要按照基地址升序排列并组织成双向链表，下图展示了Chunk的结构以及Chunk之间的连接关系。初始时，每个Chunk都有自己的size，并且这些size都是以256字节为模。应当注意，<strong>每个Chunk或者完全被标记为使用，或者完全标记为空闲，不存在该Chunk内只有部分空间被使用的情况</strong>。</p>
+<p><img alt="img" src="../../_images/1437153-20190420214100952-654999029.png" /></p>
+<p>prev，next：这两个变量起到指针作用，分别指向前驱和后继Chunk。因为在BFC Allocator模块中多个chunk都被放入了vector中，所以这两个指针实际上就是前驱和后继的index</p>
+<p>ptr：该Chunk的起始存储地址，或者叫基地址</p>
+<p>size：该Chunk描述存储区的<strong>实际总大小</strong>，每个Chunk的size是不同的，但都以256字节为模</p>
+<p><strong>requested_size：该Chunk描述存储区的使用大小，代表了用户请求使用的大小，它一定小于等于size。因为Chunk不能被部分使用，所以即使用户实际只使用requested_size，那么也只能将整个大小为size的Chunk全部分配出去，显然这可能会造成一些碎片的浪费</strong></p>
+<p>allocation_id：该值如果不为0，则代表已经被标记为使用，反之则是空闲</p>
+<p>bin_num：代表该Chunk所在Bin的Index。</p>
+<p>Bin是另一个核心数据结构，下面将会做详细介绍</p>
+</section>
+<section id="bin">
+<h4>Bin<a class="headerlink" href="#bin" title="Link to this heading"></a></h4>
+<p>在管理 <code class="docutils literal notranslate"><span class="pre">Chunk</span></code> 的过程中，有两个重要的目标：</p>
+<ol class="simple">
+<li><p><strong>快速检索</strong>：在 Bin 中能够根据 <code class="docutils literal notranslate"><span class="pre">Chunk</span></code> 大小迅速找到合适的内存块。</p></li>
+<li><p><strong>维护逻辑顺序</strong>：有时需要保持内存块之间的顺序关系，比如合并相邻的空闲内存块。</p></li>
+</ol>
+<p>如果我们想查询某一块符合条件的空闲Chunk并取出，那么只能对双向链表做遍历，显然这个效率不是很高。</p>
+<p>为了加速查询某块Chunk的速度，可以在创建Chunk链表时按一定顺序排列，并将整个有序链表在逻辑上切分成多个段，为每个段记录所包含的Chunk的范围，这种结构就是Bin，它相当于一种索引。</p>
+<p>因此，Bin结构是为了方便Chunk的查询而出现的。</p>
+<p>在BFC Allocator中，每个段中Chunk的顺序是按照size和基地址升序排序的，每个Bin都设有自己的bin_size，该bin_size表示该段包含的最小Chunk的size。</p>
+<p>这样一来，用户端就可以根据所需要申请的Memory大小直接找到对应的Bin，然后在该Bin中遍历寻找适合的Chunk。</p>
+<p>为了能够根据bin_size直接定位到Bin，规定bin_size与bin_num的大小关系为：bin_size=256 * 2bin_num。</p>
+<p>用户在申请Memory时，会将实际大小映射到最适合的bin_size上，然后再根据bin_size与bin_num的关系找到对应的Bin，进而在该段中遍历搜索。</p>
+<p><img alt="img" src="../../_images/1437153-20190504144033445-910888917.png" /></p>
+<p>Bin中Chunk的是通过Set组织的，为了能在Set中体现双向链表的逻辑，只需要让Chunk在Set中按照规则升序排列，并修正前驱后继指针即可。</p>
+<p>指定Chunk顺序的Comparator代码段定义在Bin结构中，如下所示。</p>
+<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="c1">// Sort first by size and then use pointer address as a tie breaker.</span>
+<span class="c1">// 比较器函数</span>
+<span class="kt">bool</span><span class="w"> </span><span class="nf">operator</span><span class="p">()(</span><span class="k">const</span><span class="w"> </span><span class="n">ChunkHandle</span><span class="w"> </span><span class="n">ha</span><span class="p">,</span>
+<span class="w">                </span><span class="k">const</span><span class="w"> </span><span class="n">ChunkHandle</span><span class="w"> </span><span class="n">hb</span><span class="p">)</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="n">NO_THREAD_SAFETY_ANALYSIS</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// 从句柄获取内存块指针</span>
+<span class="w">  </span><span class="k">const</span><span class="w"> </span><span class="n">Chunk</span><span class="o">*</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">allocator_</span><span class="o">-&gt;</span><span class="n">ChunkFromHandle</span><span class="p">(</span><span class="n">ha</span><span class="p">);</span>
+<span class="w">  </span><span class="k">const</span><span class="w"> </span><span class="n">Chunk</span><span class="o">*</span><span class="w"> </span><span class="n">b</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">allocator_</span><span class="o">-&gt;</span><span class="n">ChunkFromHandle</span><span class="p">(</span><span class="n">hb</span><span class="p">);</span>
+<span class="w">    </span><span class="c1">// 首先按内存块大小比较</span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">a</span><span class="o">-&gt;</span><span class="n">size</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">b</span><span class="o">-&gt;</span><span class="n">size</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">a</span><span class="o">-&gt;</span><span class="n">size</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">b</span><span class="o">-&gt;</span><span class="n">size</span><span class="p">;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="w">   </span><span class="c1">// 如果大小相同，则按指针地址比较</span>
+<span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="n">a</span><span class="o">-&gt;</span><span class="n">ptr</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">b</span><span class="o">-&gt;</span><span class="n">ptr</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">Set</span></code> 中的 <code class="docutils literal notranslate"><span class="pre">Chunk</span></code> 是按照某种排序规则排列的。<strong>Set 数据结构</strong>：使用 C++ 标准库中的 <code class="docutils literal notranslate"><span class="pre">std::set</span></code>，它基于红黑树实现，保持数据有序。</p>
+<p>排序规则是：</p>
+<ul class="simple">
+<li><p>首先按 <code class="docutils literal notranslate"><span class="pre">size</span></code> （大小）排序。</p></li>
+<li><p>如果 <code class="docutils literal notranslate"><span class="pre">size</span></code> 相同，则按 <code class="docutils literal notranslate"><span class="pre">ptr</span></code> （指针地址）排序。</p></li>
+</ul>
+<p>Set 的双向链表性质：</p>
+<ul class="simple">
+<li><p>虽然 <code class="docutils literal notranslate"><span class="pre">Set</span></code> 本身不提供链表结构，但通过前驱和后继指针可以构建出链表的逻辑。</p></li>
+<li><p>每个 <code class="docutils literal notranslate"><span class="pre">Chunk</span></code> 对象维护两个指针：<code class="docutils literal notranslate"><span class="pre">prev</span></code> 和 <code class="docutils literal notranslate"><span class="pre">next</span></code>，指向前一个和后一个 <code class="docutils literal notranslate"><span class="pre">Chunk</span></code>。</p></li>
+<li><p>在 <code class="docutils literal notranslate"><span class="pre">Set</span></code> 中按照排序规则排列后，修正每个 <code class="docutils literal notranslate"><span class="pre">Chunk</span></code> 的 <code class="docutils literal notranslate"><span class="pre">prev</span></code> 和 <code class="docutils literal notranslate"><span class="pre">next</span></code> 指针，使它们形成一个双向链表。</p></li>
+</ul>
+</section>
+</section>
+<section id="id16">
+<h3>辅助工具类<a class="headerlink" href="#id16" title="Link to this heading"></a></h3>
+</section>
+<section id="allocationregionregionmanager">
+<h3>AllocationRegion与RegionManager<a class="headerlink" href="#allocationregionregionmanager" title="Link to this heading"></a></h3>
+<p>这两个类是起到辅助作用。</p>
+<p>BFC Allocator每次分配存储区时都以Chunk为单位，指向Chunk的指针又是ChunkHandle类型（实际为数组下标），但分配存储的最终目的是把Chunk中指向存储区域的头指针ptr分配给请求方。</p>
+<p>另外，当系统回收存储区时，面对的也是存储区的头指针，那么如果不能根据头指针找到Chunk和Bin信息，回收就不能成功。因此这里显然应该设计一系列接口和函数：<strong>它能够记录每次分配的Chunk，并且能够保存分配存储区的地址ptr与Chunk之间的映射关系</strong>。AllocationRegion和RegionManager就是完成这些功能的接口。</p>
+<p>具体而言，AllocationRegion对应<strong>一次存储区分配的记录</strong>。</p>
+<p>一次存储区分配的信息包括起始地址ptr和存储区大小memory_size，这可能包括多个Chunk，所以该结构要记录此次分配中所包含所有Chunk的信息。</p>
+<p>RegionManager是AllocationRegion的管理器，它维护了<strong>AllocationRegion的数组</strong>。在RegionManager中，AllocationRegion数组是需要按照end_ptr地址排序的。</p>
+<p>利用RegionManager查询某个ptr所对应的ChunkHandle的时序图如下图所示。</p>
+<p><img alt="img" src="../../_images/1437153-20190504203539466-288395100.png" /></p>
+</section>
+</section>
+<section id="bfc">
+<h2>BFC分配与回收策略<a class="headerlink" href="#bfc" title="Link to this heading"></a></h2>
+<p>介绍完基本结构和BFC的设计思想之后，就可以试着去理解具体的存储区分配和回收过程了。</p>
+<section id="allocate">
+<h3>Allocate流程<a class="headerlink" href="#allocate" title="Link to this heading"></a></h3>
+<section id="allocaterawinternal">
+<h4>AllocateRawInternal<a class="headerlink" href="#allocaterawinternal" title="Link to this heading"></a></h4>
+<p>这是BFCAllocator的为用户分配Chunk的总体流程。</p>
+<p>因为物理设备上实际的<strong>空闲</strong>存储区已经被事先开辟好，并以Chunk的形式组织成了双向链表，那么BFC Allocator为用户分配存储区时直接从Chunk中获取即可。</p>
+<p><strong>当双向链表中找不到合适的Chunk时，不得不向物理设备上申请更多存储空间，并创建新的Chunk放入到双向链表中，并挂入到B相应的Bin中。</strong></p>
+<p>下面的流程图展示了这一过程，该过程涉及到了几个比较重要的子过程。</p>
+<p><strong>它们分别是遍历搜索寻找最佳Chunk指针的FIndChunkPtr过程，当Chunk链表中不存在合适的Chunk以至于不得不向物理设备申请新存储空间的Extend过程，以及分配Chunk时为缓解碎片问题而出现的SplitChunk过程。</strong></p>
+<img src="../../_static/figure/1437153-20190504225734983-60895445.png" alt="img"  /><div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="kt">void</span><span class="o">*</span><span class="w"> </span><span class="nf">BFCAllocator::AllocateRawInternal</span><span class="p">(</span><span class="kt">size_t</span><span class="w"> </span><span class="n">unused_alignment</span><span class="p">,</span>
+<span class="w">                                        </span><span class="kt">size_t</span><span class="w"> </span><span class="n">num_bytes</span><span class="p">,</span>
+<span class="w">                                        </span><span class="kt">bool</span><span class="w"> </span><span class="n">dump_log_on_failure</span><span class="p">,</span>
+<span class="w">                                        </span><span class="n">uint64</span><span class="w"> </span><span class="n">freed_before</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">num_bytes</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">VLOG</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">&quot;tried to allocate 0 bytes&quot;</span><span class="p">;</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">nullptr</span><span class="p">;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="w">  </span><span class="c1">// First, always allocate memory of at least kMinAllocationSize</span>
+<span class="w">  </span><span class="c1">// bytes, and always allocate multiples of kMinAllocationSize bytes</span>
+<span class="w">  </span><span class="c1">// so all memory addresses are nicely byte aligned.</span>
+<span class="w">  </span><span class="kt">size_t</span><span class="w"> </span><span class="n">rounded_bytes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">RoundedBytes</span><span class="p">(</span><span class="n">num_bytes</span><span class="p">);</span>
+
+<span class="w">  </span><span class="c1">// The BFC allocator tries to find the best fit first.</span>
+<span class="w">  </span><span class="n">BinNum</span><span class="w"> </span><span class="n">bin_num</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">BinNumForSize</span><span class="p">(</span><span class="n">rounded_bytes</span><span class="p">);</span>
+
+<span class="w">  </span><span class="n">mutex_lock</span><span class="w"> </span><span class="n">l</span><span class="p">(</span><span class="n">lock_</span><span class="p">);</span>
+<span class="w">  </span><span class="kt">void</span><span class="o">*</span><span class="w"> </span><span class="n">ptr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">FindChunkPtr</span><span class="p">(</span><span class="n">bin_num</span><span class="p">,</span><span class="w"> </span><span class="n">rounded_bytes</span><span class="p">,</span><span class="w"> </span><span class="n">num_bytes</span><span class="p">,</span><span class="w"> </span><span class="n">freed_before</span><span class="p">);</span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">ptr</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">nullptr</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="n">ptr</span><span class="p">;</span>
+<span class="w">  </span><span class="p">}</span>
+
+<span class="w">  </span><span class="c1">// Try to extend</span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">Extend</span><span class="p">(</span><span class="n">unused_alignment</span><span class="p">,</span><span class="w"> </span><span class="n">rounded_bytes</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">ptr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">FindChunkPtr</span><span class="p">(</span><span class="n">bin_num</span><span class="p">,</span><span class="w"> </span><span class="n">rounded_bytes</span><span class="p">,</span><span class="w"> </span><span class="n">num_bytes</span><span class="p">,</span><span class="w"> </span><span class="n">freed_before</span><span class="p">);</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">ptr</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">nullptr</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="k">return</span><span class="w"> </span><span class="n">ptr</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+
+<span class="w">  </span><span class="c1">// We searched all bins for an existing free chunk to use and</span>
+<span class="w">  </span><span class="c1">// couldn&#39;t find one.  This means we must have run out of memory,</span>
+<span class="w">  </span><span class="c1">// Dump the memory log for analysis.</span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">dump_log_on_failure</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">LOG</span><span class="p">(</span><span class="n">WARNING</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">&quot;Allocator (&quot;</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">Name</span><span class="p">()</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">&quot;) ran out of memory trying &quot;</span>
+<span class="w">                 </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">&quot;to allocate &quot;</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">strings</span><span class="o">::</span><span class="n">HumanReadableNumBytes</span><span class="p">(</span><span class="n">num_bytes</span><span class="p">)</span>
+<span class="w">                 </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">&quot;.  Current allocation summary follows.&quot;</span><span class="p">;</span>
+<span class="w">    </span><span class="n">DumpMemoryLog</span><span class="p">(</span><span class="n">rounded_bytes</span><span class="p">);</span>
+<span class="w">    </span><span class="n">LOG</span><span class="p">(</span><span class="n">WARNING</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">RenderOccupancy</span><span class="p">();</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="n">nullptr</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="findchunkptr">
+<h4>FindChunkPtr过程<a class="headerlink" href="#findchunkptr" title="Link to this heading"></a></h4>
+<p>因为Chunk在每个Bin中都是按照size和基地址升序排列，所以搜索Chunk时只需顺序遍历free_chunks即可，首个找到的符合要求的Chunk即为所求。这个过程非常简单，不再以图的形式描述，只展示代码如下。</p>
+<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="kt">void</span><span class="o">*</span><span class="w"> </span><span class="nf">BFCAllocator::FindChunkPtr</span><span class="p">(</span><span class="n">BinNum</span><span class="w"> </span><span class="n">bin_num</span><span class="p">,</span><span class="w"> </span><span class="kt">size_t</span><span class="w"> </span><span class="n">rounded_bytes</span><span class="p">,</span>
+<span class="w">                                 </span><span class="kt">size_t</span><span class="w"> </span><span class="n">num_bytes</span><span class="p">,</span><span class="w"> </span><span class="n">uint64</span><span class="w"> </span><span class="n">freed_before</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="c1">// BinNum bin_num：起始的 Bin 编号，从这个编号的 Bin 开始搜索空闲块。</span>
+<span class="w">  </span><span class="c1">// size_t rounded_bytes：经过调整后的请求大小，用于查找合适的空闲块。</span>
+<span class="w">  </span><span class="c1">// size_t num_bytes：实际请求的内存大小，用于更新块的 requested_size。</span>
+<span class="w">  </span><span class="c1">// uint64 freed_before：用于限制分配的块只能是某个计数之前释放的块。如果为 0，则不考虑这一限制。</span>
+<span class="w">  </span>
+<span class="w">  </span><span class="c1">// First identify the first bin that could satisfy rounded_bytes.</span>
+<span class="w">  </span><span class="c1">// 外层循环：从给定的起始 Bin 开始，逐个 Bin 查找。</span>
+<span class="w">  </span><span class="k">for</span><span class="w"> </span><span class="p">(;</span><span class="w"> </span><span class="n">bin_num</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">kNumBins</span><span class="p">;</span><span class="w"> </span><span class="n">bin_num</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// Start searching from the first bin for the smallest chunk that fits</span>
+<span class="w">    </span><span class="c1">// rounded_bytes.</span>
+<span class="w">    </span><span class="n">Bin</span><span class="o">*</span><span class="w"> </span><span class="n">b</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">BinFromIndex</span><span class="p">(</span><span class="n">bin_num</span><span class="p">);</span>
+<span class="w">    </span>
+<span class="w">    </span><span class="c1">// 内层循环：在当前 Bin 中的 free_chunks 集合里，按照排序顺序查找满足 rounded_bytes 的空闲块。</span>
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="k">auto</span><span class="w"> </span><span class="n">citer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">b</span><span class="o">-&gt;</span><span class="n">free_chunks</span><span class="p">.</span><span class="n">begin</span><span class="p">();</span><span class="w"> </span><span class="n">citer</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">b</span><span class="o">-&gt;</span><span class="n">free_chunks</span><span class="p">.</span><span class="n">end</span><span class="p">();</span>
+<span class="w">         </span><span class="o">++</span><span class="n">citer</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="k">const</span><span class="w"> </span><span class="n">BFCAllocator</span><span class="o">::</span><span class="n">ChunkHandle</span><span class="w"> </span><span class="n">h</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="n">citer</span><span class="p">);</span>
+<span class="w">      </span><span class="n">BFCAllocator</span><span class="o">::</span><span class="n">Chunk</span><span class="o">*</span><span class="w"> </span><span class="n">chunk</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ChunkFromHandle</span><span class="p">(</span><span class="n">h</span><span class="p">);</span>
+<span class="w">      </span><span class="n">DCHECK</span><span class="p">(</span><span class="o">!</span><span class="n">chunk</span><span class="o">-&gt;</span><span class="n">in_use</span><span class="p">());</span>
+<span class="w">      </span>
+<span class="w">      </span><span class="c1">// 检查块的状态和大小 freed_before 限制：如果块的释放计数高于 freed_before，跳过该块。</span>
+<span class="w">      </span><span class="cm">/*</span>
+<span class="cm">      freed_before 的目的</span>
+<span class="cm">      防止短时间内反复使用：</span>
+<span class="cm">        防止在短时间内反复分配和释放某一块特定的内存块，以减少内存碎片的产生。</span>
+<span class="cm">        通过跳过较新的、刚刚释放的内存块，分配器可以优先使用释放时间更早的块，进而减少内存碎片。</span>
+<span class="cm">      实现多次释放策略：</span>
+<span class="cm">      	有时可以通过限制反复使用的频率，来确保分配器能利用不同的内存块，从而提高内存分配的均匀性。</span>
+<span class="cm">      诊断和优化：</span>
+<span class="cm">      	允许分配器通过调整分配策略来分析和优化内存使用情况。</span>
+<span class="cm">      */</span>
+<span class="w">      </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">freed_before</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">freed_before</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">chunk</span><span class="o">-&gt;</span><span class="n">freed_count</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">continue</span><span class="p">;</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">      </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">chunk</span><span class="o">-&gt;</span><span class="n">size</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">rounded_bytes</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="c1">// We found an existing chunk that fits us that wasn&#39;t in use, so remove</span>
+<span class="w">        </span><span class="c1">// it from the free bin structure prior to using.</span>
+<span class="w">        </span><span class="c1">// 从空闲 Bin 中移除：将找到的块从当前 Bin 的 free_chunks 集合中移除。</span>
+<span class="w">        </span><span class="n">RemoveFreeChunkIterFromBin</span><span class="p">(</span><span class="o">&amp;</span><span class="n">b</span><span class="o">-&gt;</span><span class="n">free_chunks</span><span class="p">,</span><span class="w"> </span><span class="n">citer</span><span class="p">);</span>
+
+<span class="w">        </span><span class="c1">// If we can break the size of the chunk into two reasonably large</span>
+<span class="w">        </span><span class="c1">// pieces, do so.  In any case don&#39;t waste more than</span>
+<span class="w">        </span><span class="c1">// kMaxInternalFragmentation bytes on padding this alloc.</span>
+<span class="w">        </span><span class="c1">// 如果找到的块大于请求的两倍，或者满足一定的内部碎片阈值，则分割块。</span>
+<span class="w">        </span><span class="k">const</span><span class="w"> </span><span class="n">int64</span><span class="w"> </span><span class="n">kMaxInternalFragmentation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">128</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">20</span><span class="p">;</span><span class="w">  </span><span class="c1">// 128mb</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">chunk</span><span class="o">-&gt;</span><span class="n">size</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">rounded_bytes</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">2</span><span class="w"> </span><span class="o">||</span>
+<span class="w">            </span><span class="n">static_cast</span><span class="o">&lt;</span><span class="n">int64</span><span class="o">&gt;</span><span class="p">(</span><span class="n">chunk</span><span class="o">-&gt;</span><span class="n">size</span><span class="p">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">rounded_bytes</span><span class="w"> </span><span class="o">&gt;=</span>
+<span class="w">                </span><span class="n">kMaxInternalFragmentation</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">          </span><span class="n">SplitChunk</span><span class="p">(</span><span class="n">h</span><span class="p">,</span><span class="w"> </span><span class="n">rounded_bytes</span><span class="p">);</span>
+<span class="w">          </span><span class="c1">// 分割后更新 chunk 指针。</span>
+<span class="w">          </span><span class="n">chunk</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ChunkFromHandle</span><span class="p">(</span><span class="n">h</span><span class="p">);</span><span class="w">  </span><span class="c1">// Update chunk pointer in case it moved</span>
+<span class="w">        </span><span class="p">}</span>
+
+<span class="w">        </span><span class="c1">// The requested size of the returned chunk is what the user</span>
+<span class="w">        </span><span class="c1">// has allocated.</span>
+<span class="w">        </span><span class="c1">// 设置块的请求大小和分配 ID：更新块的 requested_size 和分配 ID，将其标记为已分配。</span>
+<span class="w">        </span><span class="n">chunk</span><span class="o">-&gt;</span><span class="n">requested_size</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">num_bytes</span><span class="p">;</span>
+<span class="w">        </span><span class="c1">// Assign a unique id and increment the id counter, marking the</span>
+<span class="w">        </span><span class="c1">// chunk as being in use.</span>
+<span class="w">        </span><span class="c1">// 更新统计信息 </span>
+<span class="w">        </span><span class="n">chunk</span><span class="o">-&gt;</span><span class="n">allocation_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">next_allocation_id_</span><span class="o">++</span><span class="p">;</span>
+
+<span class="w">        </span><span class="c1">// 更新内存分配器的统计信息。</span>
+<span class="w">        </span><span class="o">++</span><span class="n">stats_</span><span class="p">.</span><span class="n">num_allocs</span><span class="p">;</span>
+<span class="w">        </span><span class="n">stats_</span><span class="p">.</span><span class="n">bytes_in_use</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="n">chunk</span><span class="o">-&gt;</span><span class="n">size</span><span class="p">;</span>
+<span class="w">        </span><span class="n">stats_</span><span class="p">.</span><span class="n">peak_bytes_in_use</span><span class="w"> </span><span class="o">=</span>
+<span class="w">            </span><span class="n">std</span><span class="o">::</span><span class="n">max</span><span class="p">(</span><span class="n">stats_</span><span class="p">.</span><span class="n">peak_bytes_in_use</span><span class="p">,</span><span class="w"> </span><span class="n">stats_</span><span class="p">.</span><span class="n">bytes_in_use</span><span class="p">);</span>
+<span class="w">        </span><span class="n">stats_</span><span class="p">.</span><span class="n">largest_alloc_size</span><span class="w"> </span><span class="o">=</span>
+<span class="w">            </span><span class="n">std</span><span class="o">::</span><span class="n">max</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="kt">size_t</span><span class="o">&gt;</span><span class="p">(</span><span class="n">stats_</span><span class="p">.</span><span class="n">largest_alloc_size</span><span class="p">,</span><span class="w"> </span><span class="n">chunk</span><span class="o">-&gt;</span><span class="n">size</span><span class="p">);</span>
+
+<span class="w">        </span><span class="c1">// 使用日志记录块的指针，并返回其内存地址。</span>
+<span class="w">        </span><span class="n">VLOG</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">&quot;Returning: &quot;</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">chunk</span><span class="o">-&gt;</span><span class="n">ptr</span><span class="p">;</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">VLOG_IS_ON</span><span class="p">(</span><span class="mi">4</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">          </span><span class="n">LOG</span><span class="p">(</span><span class="n">INFO</span><span class="p">)</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="s">&quot;A: &quot;</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="n">RenderOccupancy</span><span class="p">();</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">chunk</span><span class="o">-&gt;</span><span class="n">ptr</span><span class="p">;</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+
+<span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="n">nullptr</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="splitchunk">
+<h4>SplitChunk过程<a class="headerlink" href="#splitchunk" title="Link to this heading"></a></h4>
+<p>上图中没有展示出SplitChunk发生的位置，其实该过程是在FindChunkPtr中发生。在选取Chunk时，会有一定概率出现请求的size比所选的Chunk总size小很多的情况。因为每块Chunk只有in use或free两种状态，所以如果空闲的size比请求的size大很多，显然会造成该Chunk的实际使用率过低，这是一种浪费。</p>
+<p>BFC Allocator通过调用SplitChunk将Chunk分割成两部分来缓解这一问题。SplitChunk的功能顾名思义，就是将一块大的Chunk分割成两个部分。该过程发生在FindChunkPtr中，我们需要注意触发SplitChunk过程的条件，在代码中我们能看到这一函数的调用条件如下。</p>
+<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="c1">// If we can break the size of the chunk into two reasonably large</span>
+<span class="c1">// pieces, do so.  In any case don&#39;t waste more than</span>
+<span class="c1">// kMaxInternalFragmentation bytes on padding this alloc.</span>
+<span class="k">const</span><span class="w"> </span><span class="n">int64</span><span class="w"> </span><span class="n">kMaxInternalFragmentation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">128</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">20</span><span class="p">;</span><span class="w">  </span><span class="c1">// 128mb</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">chunk</span><span class="o">-&gt;</span><span class="n">size</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="n">rounded_bytes</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">2</span><span class="w"> </span><span class="o">||</span>
+<span class="w">    </span><span class="n">static_cast</span><span class="o">&lt;</span><span class="n">int64</span><span class="o">&gt;</span><span class="p">(</span><span class="n">chunk</span><span class="o">-&gt;</span><span class="n">size</span><span class="p">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">rounded_bytes</span><span class="w"> </span><span class="o">&gt;=</span>
+<span class="w">        </span><span class="n">kMaxInternalFragmentation</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="n">SplitChunk</span><span class="p">(</span><span class="n">h</span><span class="p">,</span><span class="w"> </span><span class="n">rounded_bytes</span><span class="p">);</span>
+<span class="w">  </span><span class="n">chunk</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ChunkFromHandle</span><span class="p">(</span><span class="n">h</span><span class="p">);</span><span class="w">  </span><span class="c1">// Update chunk pointer in case it moved</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>从代码中可以清晰的看到，当以下两个条件之一满足时，SplitChunk过程将被触发。</p>
+<ol class="simple">
+<li><p><strong>当chunk的size是用户请求的round size两倍及以上时（用户请求的size会根据最小分配单元做round近似）</strong></p></li>
+<li><p><strong>当chunk的size减去用户请求的round size后依然大于等于最大碎片限定时（128MB）</strong></p></li>
+</ol>
+<p>在执行SplitChunk时，需要调整Chunk的前驱后继指针，这就是链表的基本操作，非常简单。另外，SplitChunk会产生新的Free Chunk，需要根据它的大小将它插入到对应的Bin中。</p>
+</section>
+<section id="extend">
+<h4>Extend过程<a class="headerlink" href="#extend" title="Link to this heading"></a></h4>
+<p>上面的流程图已经展示，只有在双向链表中不能找到合适的Chunk时，Extend过程才会被调用。它的调用说明现有的存储池中已经没有可以满足需求的存储区了，需要向物理设备申请，并创建新的Chunk，然后放入Bin中。<strong>向物理设备申请存储空间时，如果因为一次申请的空间较大而失败，会将请求空间做0.9因子的衰退</strong>，下面的代码段展示了这个细节。<strong>申请结束后，需要向region_manager中记录该次申请。</strong></p>
+<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="c1">// Try allocating.</span>
+<span class="kt">size_t</span><span class="w"> </span><span class="n">bytes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">std</span><span class="o">::</span><span class="n">min</span><span class="p">(</span><span class="n">curr_region_allocation_bytes_</span><span class="p">,</span><span class="w"> </span><span class="n">available_bytes</span><span class="p">);</span>
+<span class="kt">void</span><span class="o">*</span><span class="w"> </span><span class="n">mem_addr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">sub_allocator_</span><span class="o">-&gt;</span><span class="n">Alloc</span><span class="p">(</span><span class="n">alignment</span><span class="p">,</span><span class="w"> </span><span class="n">bytes</span><span class="p">);</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">mem_addr</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">nullptr</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="n">started_backpedal_</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="c1">// Only backpedal once.</span>
+<span class="w">  </span><span class="n">started_backpedal_</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">true</span><span class="p">;</span>
+
+<span class="w">  </span><span class="k">static</span><span class="w"> </span><span class="n">constexpr</span><span class="w"> </span><span class="kt">float</span><span class="w"> </span><span class="n">kBackpedalFactor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0.9</span><span class="p">;</span>
+
+<span class="w">  </span><span class="c1">// Try allocating less memory.</span>
+<span class="w">  </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="n">mem_addr</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">nullptr</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">bytes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">RoundedBytes</span><span class="p">(</span><span class="n">bytes</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">kBackpedalFactor</span><span class="p">);</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">bytes</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">rounded_bytes</span><span class="p">)</span><span class="w"> </span><span class="k">break</span><span class="p">;</span>
+<span class="w">    </span><span class="n">mem_addr</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">sub_allocator_</span><span class="o">-&gt;</span><span class="n">Alloc</span><span class="p">(</span><span class="n">alignment</span><span class="p">,</span><span class="w"> </span><span class="n">bytes</span><span class="p">);</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="deallocate">
+<h3>Deallocate流程<a class="headerlink" href="#deallocate" title="Link to this heading"></a></h3>
+<p>因为在回收时只知道存储空间首地址指针，并不知道其对应的Chunk，所以需要先借助region_manager等辅助工具<strong>获取其所对应的Chunk指针，然后考虑其前驱后继节点是否可以合并</strong>。下面展示了整体流程。因为Merge的过程即使链表合并的过程，比较简单，所以在此不再赘述。</p>
+<p><img alt="img" src="../../_images/1437153-20190504221452222-244135340.png" /></p>
+<div class="highlight-c notranslate"><div class="highlight"><pre><span></span><span class="kt">void</span><span class="w"> </span><span class="nf">BFCAllocator::FreeAndMaybeCoalesce</span><span class="p">(</span><span class="n">BFCAllocator</span><span class="o">::</span><span class="n">ChunkHandle</span><span class="w"> </span><span class="n">h</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="c1">// BFCAllocator::ChunkHandle h：表示要释放的 Chunk 的句柄。</span>
+<span class="w">  </span><span class="c1">// 通过句柄 h 获取 Chunk 对象 c。</span>
+<span class="w">	</span><span class="c1">// 使用 CHECK 断言来验证 Chunk 是已分配状态，并且当前不属于任何 Bin（bin_num 为 kInvalidBinNum）。</span>
+<span class="w">  </span><span class="n">Chunk</span><span class="o">*</span><span class="w"> </span><span class="n">c</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ChunkFromHandle</span><span class="p">(</span><span class="n">h</span><span class="p">);</span>
+<span class="w">  </span><span class="n">CHECK</span><span class="p">(</span><span class="n">c</span><span class="o">-&gt;</span><span class="n">in_use</span><span class="p">()</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="p">(</span><span class="n">c</span><span class="o">-&gt;</span><span class="n">bin_num</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">kInvalidBinNum</span><span class="p">));</span>
+
+<span class="w">  </span><span class="c1">// Mark the chunk as no longer in use.</span>
+<span class="w">  </span><span class="c1">// 设置 allocation_id 为 -1，表示该块已释放，不再使用。</span>
+<span class="w">  </span><span class="n">c</span><span class="o">-&gt;</span><span class="n">allocation_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">-1</span><span class="p">;</span>
+
+<span class="w">  </span><span class="c1">// Optionally record the free time.</span>
+<span class="w">  </span><span class="c1">// 如果存在 timing_counter_，则记录块的释放次数（或释放计数）。</span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">timing_counter_</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">c</span><span class="o">-&gt;</span><span class="n">freed_count</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">timing_counter_</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">();</span>
+<span class="w">  </span><span class="p">}</span>
+
+<span class="w">  </span><span class="c1">// Updates the stats.</span>
+<span class="w">  </span><span class="c1">// 减少统计信息中的已使用字节数。</span>
+<span class="w">  </span><span class="n">stats_</span><span class="p">.</span><span class="n">bytes_in_use</span><span class="w"> </span><span class="o">-=</span><span class="w"> </span><span class="n">c</span><span class="o">-&gt;</span><span class="n">size</span><span class="p">;</span>
+<span class="w">  </span>
+<span class="w">	</span><span class="c1">// 初始化合并后的 ChunkHandle，默认为当前块的句柄 h。</span>
+<span class="w">  </span><span class="n">ChunkHandle</span><span class="w"> </span><span class="n">coalesced_chunk</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">h</span><span class="p">;</span>
+<span class="w">	</span>
+<span class="w">  </span><span class="c1">// 如果 c 后面的块存在并且是空闲的，则：将该空闲块从它所属的 Bin 中移除。将该空闲块与当前块合并。</span>
+<span class="w">  </span><span class="c1">// If the next chunk is free, merge it into c and delete it.</span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">c</span><span class="o">-&gt;</span><span class="n">next</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">kInvalidChunkHandle</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="n">ChunkFromHandle</span><span class="p">(</span><span class="n">c</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">)</span><span class="o">-&gt;</span><span class="n">in_use</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// VLOG(8) &lt;&lt; &quot;Merging c-&gt;next &quot; &lt;&lt; ChunkFromHandle(c-&gt;next)-&gt;ptr</span>
+<span class="w">    </span><span class="c1">//         &lt;&lt; &quot; with c &quot; &lt;&lt; c-&gt;ptr;</span>
+<span class="w">    </span><span class="n">RemoveFreeChunkFromBin</span><span class="p">(</span><span class="n">c</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">);</span>
+<span class="w">    </span><span class="n">Merge</span><span class="p">(</span><span class="n">h</span><span class="p">,</span><span class="w"> </span><span class="n">c</span><span class="o">-&gt;</span><span class="n">next</span><span class="p">);</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="w">	</span><span class="c1">// 如果 c 前面的块存在并且是空闲的，则：将 coalesced_chunk 设置为前面块的句柄。将前面的空闲块从它所属的 Bin 中移除。将当前块与前面的空闲块合并。</span>
+<span class="w">  </span><span class="c1">// If the previous chunk is free, merge c into it and delete c.</span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">c</span><span class="o">-&gt;</span><span class="n">prev</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">kInvalidChunkHandle</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">!</span><span class="n">ChunkFromHandle</span><span class="p">(</span><span class="n">c</span><span class="o">-&gt;</span><span class="n">prev</span><span class="p">)</span><span class="o">-&gt;</span><span class="n">in_use</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// VLOG(8) &lt;&lt; &quot;Merging c &quot; &lt;&lt; c-&gt;ptr &lt;&lt; &quot; into c-&gt;prev &quot;</span>
+<span class="w">    </span><span class="c1">//         &lt;&lt; ChunkFromHandle(c-&gt;prev)-&gt;ptr;</span>
+
+<span class="w">    </span><span class="n">coalesced_chunk</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">c</span><span class="o">-&gt;</span><span class="n">prev</span><span class="p">;</span>
+<span class="w">    </span><span class="n">RemoveFreeChunkFromBin</span><span class="p">(</span><span class="n">c</span><span class="o">-&gt;</span><span class="n">prev</span><span class="p">);</span>
+<span class="w">    </span><span class="n">Merge</span><span class="p">(</span><span class="n">c</span><span class="o">-&gt;</span><span class="n">prev</span><span class="p">,</span><span class="w"> </span><span class="n">h</span><span class="p">);</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="w">	</span><span class="c1">// 将最终合并后的空闲块插入到合适的 Bin 中。</span>
+<span class="w">  </span><span class="n">InsertFreeChunkIntoBin</span><span class="p">(</span><span class="n">coalesced_chunk</span><span class="p">);</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="allow-growth">
+<h2>Allow Growth<a class="headerlink" href="#allow-growth" title="Link to this heading"></a></h2>
+<p><strong>这是控制Allocator的一个选项，默认是False，此时会在设备上开辟最大限度的存储空间，并且全局只开辟一次。</strong></p>
+<p><strong>因为已经开辟了设备上的全部存储空间，所以若在双向链表中找不到合适的Chunk，那么将会直接报错OOM退出。</strong></p>
+<p><strong>当选项为True时，会经历多次存储空间的开辟，这完全取决于当前存储池中是否还有符合需求大小的Chunk。</strong></p>
+<p><strong>如果没有，则不断以2的n次方为基本大小进行开辟尝试，直到满足需求为止。</strong></p>
+<p><strong>那么这个值有什么用处呢？这取决于同一个Device是否允许被多个程序复用。</strong></p>
+<p><strong>比如在云基础设施上，如果能够开启Device复用，并打开Device的空分复用功能，那么将会大大提高集群资源的利用率。</strong></p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="页脚">
+        <a href="TFLite%20memory.html" class="btn btn-neutral float-left" title="优化 TensorFlow Lite 运行时内存" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> 上一页</a>
+        <a href="malloc.html" class="btn btn-neutral float-right" title="&lt;no title&gt;" accesskey="n" rel="next">下一页 <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; 版权所有 2024, Alex Xiong。</p>
+  </div>
+
+  利用 <a href="https://www.sphinx-doc.org/">Sphinx</a> 构建，使用的 
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">主题</a>
+    由 <a href="https://readthedocs.org">Read the Docs</a> 开发.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
