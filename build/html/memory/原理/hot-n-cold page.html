@@ -4,7 +4,7 @@
   <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>&lt;no title&gt; &mdash; Mylab v1 文档</title>
+  <title>hot-n-cold page &mdash; Mylab v1 文档</title>
       <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=92fd9be5" />
       <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=19f00094" />
 
@@ -21,7 +21,9 @@
         <script src="../../_static/translations.js?v=beaddf03"></script>
     <script src="../../_static/js/theme.js"></script>
     <link rel="index" title="索引" href="../../genindex.html" />
-    <link rel="search" title="搜索" href="../../search.html" /> 
+    <link rel="search" title="搜索" href="../../search.html" />
+    <link rel="next" title="如何使用MPS提升GPU计算收益" href="MPS.html" />
+    <link rel="prev" title="memory system call" href="memory%20system%20call.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -44,9 +46,32 @@
 </div>
         </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="导航菜单">
               <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
-<ul>
+<ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../../Tools/index.html">工具合集</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../index.html">内存相关信息</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">内存相关信息</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="index.html">原理</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="TFLite%20memory.html"><strong>优化 TensorFlow Lite 运行时内存</strong></a></li>
+<li class="toctree-l3"><a class="reference internal" href="BFC%20Allocator.html">TensorFlow中的显存管理器——BFC Allocator </a></li>
+<li class="toctree-l3"><a class="reference internal" href="Nvidia%20GPU%20Memory%20Pool-BFC.html">Nvidia GPU Memory Pool-BFC</a></li>
+<li class="toctree-l3"><a class="reference internal" href="memory%20system%20call.html">memory system call</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">hot-n-cold page</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#id1">伙伴系统简介</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id2">伙伴锁的作用</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id3">伙伴锁的影响</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id4">1. 缓存大小</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id5">2. 关联度</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id6">3. 行大小</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id7">4. 替换策略</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id8">5. 写策略</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#loop-transformation">循环变换（Loop Transformation）</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#block-tiling">阻塞技术（Block Tiling）</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="MPS.html">如何使用MPS提升GPU计算收益</a></li>
+</ul>
+</li>
+</ul>
+</li>
 </ul>
 
         </div>
@@ -63,7 +88,9 @@
           <div role="navigation" aria-label="页面导航">
   <ul class="wy-breadcrumbs">
       <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
-      <li class="breadcrumb-item active">&lt;no title&gt;</li>
+          <li class="breadcrumb-item"><a href="../index.html">内存相关信息</a></li>
+          <li class="breadcrumb-item"><a href="index.html">原理</a></li>
+      <li class="breadcrumb-item active">hot-n-cold page</li>
       <li class="wy-breadcrumbs-aside">
             <a href="../../_sources/Memory/原理/hot-n-cold page.md.txt" rel="nofollow"> 查看页面源码</a>
       </li>
@@ -73,11 +100,137 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  
+  <section id="hot-n-cold-page">
+<h1>hot-n-cold page<a class="headerlink" href="#hot-n-cold-page" title="Link to this heading"></a></h1>
+<hr class="docutils" />
+<p>Linux 内核 2.5.45 中引入的 “hot-n-cold page” 补丁，旨在优化内核的内存页分配，特别是与 CPU 缓存相关的性能改进。这个补丁通过将物理页面按“热”和“冷”两类进行区分，最大化利用 CPU 缓存，提高系统整体性能。</p>
+<p>2.5.45 内核中的众多更改之一是 Martin Bligh、Andrew Morton 等人提供的“hot-n-cold page”补丁。这是一个概念上简单的改变，显示了要处理现代系统架构的现实需要走多远。</p>
+<p>人们通常认为系统 RAM 是保存数据最快的地方。但记忆力很慢；真正<em>的</em>速度来自处理器本身的板载缓存。多年来，<strong>人们付出了很多努力来尝试优化内核的缓存行为并避免访问主内存。新的页面分配系统只是朝这个方向迈出的又一步。</strong></p>
+<p>处理器高速缓存包含最近访问过的内存。内核通常很清楚哪些页面最近被访问过，因此可能存在于缓存中。热-冷补丁尝试通过添加两个每 CPU 空闲页面列表（针对每个内存区域）来利用该信息。当处理器释放被怀疑为“热”的页面（即在该处理器的缓存中表示）时，它将被推入热列表；其他人则进入冷名单。该列表有上限和下限；毕竟，如果热列表变得大于处理器的缓存，那么这些页面实际上开始热的可能性就会变得非常小。</p>
+<p>当内核需要内存页面时，新的分配器通常会尝试从处理器的热列表中获取该页面。即使页面只是被覆盖，最好还是使用缓存热页面。但有趣的是，有时使用冷页面是有意义的。如果该页用于 DMA 读取操作，则该页将由执行该操作的设备填充，并且无论如何缓存都会失效。因此，2.5.45 包含一个新的 <code class="docutils literal notranslate"><span class="pre">GPF_COLD</span></code>页面分配标志，适用于使用冷页面更有意义的情况。</p>
+<p>使用每 CPU 页面列表还可以减少锁争用，这也有助于提高性能。当页面必须在热/冷列表和主内存分配器之间移动时，它们会以多页面块的形式传输，这也减少了锁争用并使事情进展得更快。</p>
+<p>Andrew Morton 对这个补丁进行了基准测试，并包含了其中一个补丁集 的许多结果。性能优势各不相同，从最重要的内核编译时间的 1-2% 到 SDET 测试的 12%。显然，这足以说服莱纳斯。</p>
+<p>ChangeSet 1.907, 2002/10/30 15:35:32-08:00, akpm&#64;digeo.com</p>
+<p>【补丁】热冷页：批量页分配器</p>
+<p>这是热冷页系列的一部分。它在页分配器前引入了一个每CPU无锁后进先出（LIFO）池，这主要基于三个原因：</p>
+<p>1：减少对伙伴锁的竞争：我们通常以16页的块进行页面的分配和释放。</p>
+<p>2：将缓存热页返回给页面分配请求。</p>
+<p>3：作为一个页面预留API的基础设施，该API用于确保GFP_ATOMIC基数树节点和pte_chain分配不会失败。该代码尚未完成，且并非绝对需要热冷页。不过，它运行还算可以。</p>
+<p>我们为每个CPU添加了两个队列。”热”队列包含了释放代码认为可能是缓存热的页面。默认情况下，新的分配将从此队列满足。</p>
+<p>“冷”队列包含了释放代码预期为缓存冷的页面。冷队列主要用于锁的摊销，尽管可以显式地分配冷页。预读代码就是这么做的。</p>
+<p>我对这些补丁已经犹豫了相当长时间 - 因为收益并不大。</p>
+<ul>
+<li><p>Randy Hron的autoconf回归测试在四路系统上的基准测试速度提升了4%。其中大部分来自于pte_alloc和pmd_alloc的节省：页面表清除代码喜欢更温暖的页面（一些架构仍然有pgt_cache，或许可以摆脱它们）。</p></li>
+<li><p>在我的四路和Martin的三十二路系统上，内核编译速度提升了1%到2%。</p></li>
+<li><p>在一个小测试程序中，速度提升了60%，该程序将80千字节写入一个文件，然后再将其截断为零。在四路系统上运行了四个实例，它们喜欢缓存的温度。</p></li>
+<li><p>在八路系统上进行Specweb测试的速度提升了2.5%。</p></li>
+<li><p>最终打动我的是，SDET基准测试在八路PIII系统上的吞吐量提高了11%：</p>
+<p>使用热与冷：</p>
+<p>8用户的结果是17971    +12.1%
+16用户的结果是17026   +12.0%
+32用户的结果是17009   +10.4%
+64用户的结果是16911   +10.3%</p>
+<p>不使用：</p>
+<p>8用户的结果是16038
+16用户的结果是15200
+32用户的结果是15406
+64用户的结果是15331</p>
+<p>SDET是一个非常老的SPEC测试，它模拟了一个有大量用户的开发环境。基本上是许多用户运行一系列的shell命令。</p>
+</li>
+</ul>
+<p>这些补丁由Martin Bligh和我编写。</p>
+<p>这个补丁实现了rmqueue_bulk() - 一个从伙伴列表中移除给定顺序的多个页面的函数。</p>
+<p>这是为了锁摊销：减少高度竞争的zone-&gt;lock的频繁获取，一旦获得则做更多的工作。</p>
+<p>在Linux内核的内存管理中，伙伴系统（Buddy System）是一种用于管理物理内存的算法，旨在有效地分配和释放内存块，减少碎片。在这个系统中，“伙伴锁”是指用来同步对伙伴系统数据结构访问的锁机制。</p>
+<section id="id1">
+<h2>伙伴系统简介<a class="headerlink" href="#id1" title="Link to this heading"></a></h2>
+<p>伙伴系统通过将内存分为一系列的大小为2的幂的块来工作。每次内存分配或释放请求都涉及到对这些块的操作。当一个内存块被释放时，伙伴系统会检查其“伙伴”（即大小相同且地址连续的块）是否也是空闲的。如果是，两个伙伴块就会合并成一个更大的块。这有助于保持内存的整合，减少碎片。</p>
+</section>
+<section id="id2">
+<h2>伙伴锁的作用<a class="headerlink" href="#id2" title="Link to this heading"></a></h2>
+<p>由于多个CPU可能同时尝试分配或释放内存块，因此需要一种同步机制来保护伙伴系统的数据结构不被并发访问所破坏。伙伴锁就是这种机制。它是一个互斥锁，用于同步对伙伴系统中的自由列表的访问。每次当内核代码需要修改这些列表（例如，添加或移除内存块）时，它必须首先获取伙伴锁。</p>
+</section>
+<section id="id3">
+<h2>伙伴锁的影响<a class="headerlink" href="#id3" title="Link to this heading"></a></h2>
+<p>虽然伙伴锁提供了必要的数据保护，使得内存管理在多处理器环境中保持一致和安全，但它也可能成为性能瓶颈。特别是在高负载时，多个处理器核心可能会竞争同一把锁，导致延迟和性能下降。</p>
+<p>因此，如提到的“热冷页”补丁中所做的那样，寻找减少对伙伴锁依赖的方法（例如通过引入本地CPU缓存队列）可以显著提升性能，因为它减少了对全局锁的竞争，使得内存分配更加高效。这种改进特别在多核处理器系统中显得非常重要，可以显著提升多任务处理和高并发场景下的系统表现。</p>
+<p>在谈论“缓存结构”时，我们通常是指构成缓存硬件或软件实现的多个关键组成部分，这些组件的设计和配置直接影响缓存的性能和效率。下面是一些构成缓存结构的基本要素：</p>
+</section>
+<section id="id4">
+<h2>1. 缓存大小<a class="headerlink" href="#id4" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>缓存大小</strong>是指缓存可以存储数据的总量，通常以字节为单位。缓存大小直接影响到可以被快速访问的数据量，较大的缓存可能提高命中率，但也可能增加缓存的访问时间和成本。</p></li>
+</ul>
+</section>
+<section id="id5">
+<h2>2. 关联度<a class="headerlink" href="#id5" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>关联度</strong>描述了一组缓存中可以存放多少行数据。它决定了在缓存中查找数据时的灵活性。</p>
+<ul>
+<li><p><strong>直接映射缓存</strong>：每个缓存块只有一个可能的位置（关联度为1）。</p></li>
+<li><p><strong>全相联缓存</strong>：任何缓存块都可以放在缓存中的任何位置（关联度等于缓存块的总数）。</p></li>
+<li><p><strong>组相联缓存</strong>：是直接映射和全相联的折中方案，缓存被分为若干组，每组有多个缓存块。</p></li>
+</ul>
+</li>
+</ul>
+</section>
+<section id="id6">
+<h2>3. 行大小<a class="headerlink" href="#id6" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>行大小</strong>（或块大小）是指单个缓存行能够存储的数据量。行大小影响了数据的加载效率，较大的行可以减少I/O操作的次数，但如果程序的空间局部性不好，可能会导致更多的无用数据被加载到缓存中。</p></li>
+</ul>
+</section>
+<section id="id7">
+<h2>4. 替换策略<a class="headerlink" href="#id7" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>替换策略</strong>决定了当缓存满时哪些数据应该被替换或移除，以为新数据腾出空间。常见的替换策略包括：</p>
+<ul>
+<li><p>最近最少使用（LRU）：淘汰最长时间未被访问的数据。</p></li>
+<li><p>先入先出（FIFO）：按照数据进入缓存的顺序进行淘汰。</p></li>
+<li><p>随机替换：随机选择一个缓存块来替换。</p></li>
+</ul>
+</li>
+</ul>
+</section>
+<section id="id8">
+<h2>5. 写策略<a class="headerlink" href="#id8" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>写策略</strong>涉及到当数据被写入缓存时如何同步更新主存中的相应数据。</p>
+<ul>
+<li><p>写回（Write-back）：数据只在缓存中修改，只有在数据被替换出缓存时才回写到主存。</p></li>
+<li><p>写通（Write-through）：数据同时写入缓存和主存。</p></li>
+</ul>
+</li>
+</ul>
+<p>缓存结构的设计和选择取决于特定应用的需求，比如应用程序的访问模式、预期的工作负载特性以及性能和资源成本的考虑。调整缓存配置，如改变缓存大小、关联度或替换策略，可以帮助匹配具体应用的需求，从而优化性能和资源使用效率。</p>
+<p>循环变换和阻塞技术（block tiling）是两种常用的编程优化技术，主要用于提高程序在内存和缓存系统中的性能。通过这些技术，程序员可以改善数据的局部性，从而提高缓存命中率并减少执行时间。下面分别解释这两种技术：</p>
+</section>
+<section id="loop-transformation">
+<h2>循环变换（Loop Transformation）<a class="headerlink" href="#loop-transformation" title="Link to this heading"></a></h2>
+<p>循环变换是对程序中循环结构进行修改的一种技术，目的是为了优化数据访问的模式和提高程序的性能。循环变换包括很多种具体技术，如循环展开（loop unrolling）、循环交换（loop interchange）、循环分割（loop fission）和循环合并（loop fusion）等。</p>
+<ul class="simple">
+<li><p><strong>循环展开</strong>：通过减少循环迭代次数来减少循环开销，同时增加单次迭代中的操作数量。</p></li>
+<li><p><strong>循环交换</strong>：在多重循环中交换内外循环的顺序，通常用来改善数组或矩阵数据的访问顺序，以匹配数据在内存中的布局。</p></li>
+<li><p><strong>循环分割和循环合并</strong>：根据需要将一个大循环分割成多个小循环，或将多个小循环合并为一个大循环，以改善缓存利用率或减少循环中的依赖。</p></li>
+</ul>
+</section>
+<section id="block-tiling">
+<h2>阻塞技术（Block Tiling）<a class="headerlink" href="#block-tiling" title="Link to this heading"></a></h2>
+<p>阻塞技术，也称为块划分或瓷砖化（tiling），是一种处理多重循环（尤其是对数组和矩阵操作）时的优化技术。其核心思想是将大的数据集分割成小的块（blocks或tiles），使得每个数据块可以完全装入缓存中进行处理。</p>
+<ul class="simple">
+<li><p><strong>数据局部性优化</strong>：通过处理小块数据，程序可以更频繁地访问缓存中的数据，从而减少访问主内存的需要。</p></li>
+<li><p><strong>例子</strong>：在处理矩阵乘法时，可以将矩阵划分成较小的子矩阵块，然后分别计算这些块。这样，每个子矩阵块在计算过程中可以保持在CPU缓存中，直到计算完成。</p></li>
+</ul>
+</section>
+</section>
+
 
            </div>
           </div>
-          <footer>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="页脚">
+        <a href="memory%20system%20call.html" class="btn btn-neutral float-left" title="memory system call" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> 上一页</a>
+        <a href="MPS.html" class="btn btn-neutral float-right" title="如何使用MPS提升GPU计算收益" accesskey="n" rel="next">下一页 <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
 
   <hr/>
 

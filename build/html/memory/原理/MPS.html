@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="zh-CN" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>如何使用MPS提升GPU计算收益 &mdash; Mylab v1 文档</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=92fd9be5" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=19f00094" />
+
+  
+  <!--[if lt IE 9]>
+    <script src="../../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="../../_static/jquery.js?v=5d32c60e"></script>
+        <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+        <script src="../../_static/documentation_options.js?v=181ac3c6"></script>
+        <script src="../../_static/doctools.js?v=9a2dae69"></script>
+        <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+        <script src="../../_static/translations.js?v=beaddf03"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="索引" href="../../genindex.html" />
+    <link rel="search" title="搜索" href="../../search.html" />
+    <link rel="prev" title="hot-n-cold page" href="hot-n-cold%20page.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            Mylab
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="搜索文档" aria-label="搜索文档" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="导航菜单">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../Tools/index.html">工具合集</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">内存相关信息</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="index.html">原理</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="TFLite%20memory.html"><strong>优化 TensorFlow Lite 运行时内存</strong></a></li>
+<li class="toctree-l3"><a class="reference internal" href="BFC%20Allocator.html">TensorFlow中的显存管理器——BFC Allocator </a></li>
+<li class="toctree-l3"><a class="reference internal" href="Nvidia%20GPU%20Memory%20Pool-BFC.html">Nvidia GPU Memory Pool-BFC</a></li>
+<li class="toctree-l3"><a class="reference internal" href="memory%20system%20call.html">memory system call</a></li>
+<li class="toctree-l3"><a class="reference internal" href="hot-n-cold%20page.html">hot-n-cold page</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">如何使用MPS提升GPU计算收益</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#cuda-contexthyper-q">背景知识： CUDA CONTEXT和HYPER-Q技术</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#mps">什么是MPS</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id8">如何使用MPS</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="移动版导航菜单" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">Mylab</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="页面导航">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">内存相关信息</a></li>
+          <li class="breadcrumb-item"><a href="index.html">原理</a></li>
+      <li class="breadcrumb-item active">如何使用MPS提升GPU计算收益</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/Memory/原理/MPS.md.txt" rel="nofollow"> 查看页面源码</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="mpsgpu">
+<h1>如何使用MPS提升GPU计算收益<a class="headerlink" href="#mpsgpu" title="Link to this heading"></a></h1>
+<hr class="docutils" />
+<p>https://www.nvidia.cn/content/dam/en-zz/zh_cn/assets/webinars/31oct2019c/20191031_MPS_davidwu.pdf</p>
+<p>https://on-demand.gputechconf.com/gtc/2015/presentation/S5584-Priyanka-Sah.pdf</p>
+<p>https://docs.nvidia.com/deploy/mps/index.html</p>
+<section id="cuda-contexthyper-q">
+<h2>背景知识： CUDA CONTEXT和HYPER-Q技术<a class="headerlink" href="#cuda-contexthyper-q" title="Link to this heading"></a></h2>
+<section id="cuda-context">
+<h3>CUDA context<a class="headerlink" href="#cuda-context" title="Link to this heading"></a></h3>
+<p>什么是 CUDA context?</p>
+<ul class="simple">
+<li><p><strong>类似于CPU进程上下文，表示与特定进程关联的所有状态</strong></p>
+<ul>
+<li><p><strong>从CPU端分配的GPU上的Global memory (cudaMalloc/cudaMallocManaged)</strong></p></li>
+<li><p><strong>Kernel函数中定义和分配的堆栈空间，例如local memory</strong></p></li>
+<li><p><strong>CUDA streams / events 对象</strong></p></li>
+<li><p>*<em>代码模块(*.cubin, <em>.ptx)</em></em></p></li>
+</ul>
+</li>
+<li><p><strong>不同的进程有自己的CUDA context</strong></p></li>
+<li><p><strong>每个context有自己的地址空间，并且不能访问其他CUDA context的地址空间</strong></p></li>
+</ul>
+<p><img alt="image-20240511125746579" src="../../_images/image-20240511125746579.png" /></p>
+</section>
+<section id="hyper-q">
+<h3>Hyper-Q<a class="headerlink" href="#hyper-q" title="Link to this heading"></a></h3>
+<p>什么是 Hyper-Q? – Hyper Queue</p>
+<ul class="simple">
+<li><p>允许多个CPU 线程或进程同时加载任务到一个GPU上， 实现CUDA kernels的并发执行 –- 硬件特性</p></li>
+</ul>
+<p>支持的连接类型</p>
+<ul class="simple">
+<li><p>Multi cuda streams</p></li>
+<li><p>Multi cpu thrreads</p></li>
+<li><p>Multi cpu processes——MPS</p></li>
+</ul>
+<p>管理可并发的最大连接数</p>
+<ul class="simple">
+<li><p>CUDA_DEVICE_MAX_CONNECTIONS = 32 (默认是8)</p></li>
+</ul>
+<p>带来的好处</p>
+<ul class="simple">
+<li><p>增加GPU利用率（utilization）和占用率（occupancy）</p></li>
+<li><p>减少CPU空闲时间</p></li>
+<li><p>增加吞吐率并减少延迟</p></li>
+</ul>
+<p>使用限制</p>
+<ul class="simple">
+<li><p>当kernel A正在执行时, 只有当GPU上任意SM上有足够的资源来执行kernel B中的1 个线程块时，kernel B才会被发射</p>
+<ul>
+<li><p>寄存器, 共享内存, 线程块槽位, 等等.</p></li>
+<li><p>要求计算能力大于等于3.5</p></li>
+<li><p>最大连接数限制：32个</p></li>
+</ul>
+</li>
+</ul>
+<p>当使用 HyperQ 提高 GPU 的任务并行度时，可能会遇到更多的 cache miss 的问题。这是因为多个独立的 CUDA 流同时在 GPU 上执行时，每个流的数据和计算请求可能会分散并争夺 GPU 的缓存资源。以下是一些详细的解释和可能的影响：</p>
+<section id="cache-miss">
+<h4>为什么会增加 Cache Miss<a class="headerlink" href="#cache-miss" title="Link to this heading"></a></h4>
+<ol class="simple">
+<li><p><strong>缓存资源共享</strong>：</p>
+<ul class="simple">
+<li><p>在 GPU 中，L1 缓存和共享内存通常在 Streaming Multiprocessors（SM）之间共享。当多个 CUDA 流并行执行时，每个流可能会运行在不同的 SM 上，或者在同一个 SM 上并行运行多个线程。</p></li>
+<li><p>这种高并发级别可能导致来自不同流的数据请求相互覆盖，从而增加了缓存失效（cache miss）的几率。</p></li>
+</ul>
+</li>
+<li><p><strong>上下文切换</strong>：</p>
+<ul class="simple">
+<li><p>尽管 CUDA 核心可以同时处理多个任务，但是如果任务过多，会导致频繁的上下文切换。</p></li>
+<li><p>每次切换到新的 CUDA 流时，之前流的数据可能已被清除出缓存，导致新任务开始执行时缺少必要的数据，进而增加了缓存不命中的情况。</p></li>
+</ul>
+</li>
+<li><p><strong>缓存容量限制</strong>：</p>
+<ul class="simple">
+<li><p><strong>每个 SM 的缓存容量有限。当运行的任务数量和数据量超过缓存能够处理的限度时，自然会增加缓存替换，从而导致 cache miss。</strong></p></li>
+</ul>
+</li>
+</ol>
+</section>
+<section id="id1">
+<h4>缓解 Cache Miss 的策略<a class="headerlink" href="#id1" title="Link to this heading"></a></h4>
+<ol class="simple">
+<li><p><strong>优化内存访问模式</strong>：</p>
+<ul class="simple">
+<li><p>设计更高效的内存访问模式，减少不必要的全局内存访问，利用共享内存来减少对全局内存的依赖。</p></li>
+<li><p>尽量使得内存访问模式更加规整（coalesced access），以提高缓存的使用效率。</p></li>
+</ul>
+</li>
+<li><p><strong>优化任务划分</strong>：</p>
+<ul class="simple">
+<li><p>合理划分任务和数据，尽量减少在不同 CUDA 流间的数据依赖性。通过这种方式，可以减少必须频繁从全局内存加载数据的场景。</p></li>
+</ul>
+</li>
+<li><p><strong>使用流优先级</strong>：</p>
+<ul class="simple">
+<li><p>利用 CUDA 提供的流优先级调度功能，控制关键任务的执行优先级，保证重要数据尽可能常驻缓存。</p></li>
+</ul>
+</li>
+<li><p><strong>合理配置流的数量</strong>：</p>
+<ul class="simple">
+<li><p>根据应用的具体需要和 GPU 的具体架构特点调整并行流的数量。避免过多的并行流数量超出 GPU 处理和缓存容量。</p></li>
+</ul>
+</li>
+</ol>
+<p>通过这些策略，可以在使用 HyperQ 功能时最大限度地减少由于 cache miss 带来的性能下降。实际应用中，需要根据具体的应用场景和数据特征来调整和优化。</p>
+<p>在神经网络推理任务中使用 HyperQ 时，确实可以实现不同模型的算子（或任务）穿插执行。这种执行方式能够有效提高 GPU 的资源利用率，尤其在处理多个模型或多任务推理时表现得尤为重要。这里提供一些详细的解释和具体的应用场景：</p>
+</section>
+<section id="id2">
+<h4>穿插执行的概念<a class="headerlink" href="#id2" title="Link to this heading"></a></h4>
+<p>在 GPU 上执行神经网络推理任务时，如果只使用单一的 CUDA 流，所有的操作（如卷积、池化、激活函数等）会按顺序在同一个流中执行，这可能会导致 GPU 的某些计算单元在等待数据传输或其它操作时处于空闲状态。通过利用 HyperQ，可以将不同的操作或不同模型的推理任务分配到不同的 CUDA 流中，这些流可以并行或者交错地在 GPU 上执行。</p>
+</section>
+<section id="id3">
+<h4>穿插执行的优势<a class="headerlink" href="#id3" title="Link to this heading"></a></h4>
+<ol class="simple">
+<li><p><strong>提高并行性</strong>：不同流的任务可以并行执行，充分利用 GPU 的每个核心，尤其是在有大量矩阵运算和数据处理需求时。</p></li>
+<li><p><strong>减少等待时间</strong>：某个流在等待数据加载或前一操作完成时，GPU 可以处理其他流的任务，减少了总体的等待时间和执行延迟。</p></li>
+<li><p><strong>增加吞吐量</strong>：在多客户端或多服务环境中，能够同时处理更多的推理请求，提高服务的吞吐量。</p></li>
+</ol>
+</section>
+<section id="id4">
+<h4>应用场景举例<a class="headerlink" href="#id4" title="Link to this heading"></a></h4>
+<ul class="simple">
+<li><p><strong>多模型服务</strong>：在提供机器学习模型作为服务的场景中（如云服务），可能需要同时对多个不同的模型进行推理。使用 HyperQ，可以将每个模型的推理分配给不同的 CUDA 流，实现同时推理，而不是排队执行。</p></li>
+<li><p><strong>实时系统</strong>：在需要快速响应的应用中（如自动驾驶或视频分析），可以将不同的处理任务（如对象检测、语义分割等）分配到不同的流中，实现实时数据处理。</p></li>
+</ul>
+</section>
+<section id="id5">
+<h4>开发和优化建议<a class="headerlink" href="#id5" title="Link to this heading"></a></h4>
+<ul class="simple">
+<li><p><strong>合理分配任务</strong>：开发者需要根据任务的复杂性和资源需求来合理规划 CUDA 流的分配，避免资源冲突和过度竞争。</p></li>
+<li><p><strong>监控和优化</strong>：使用 NVIDIA 的性能分析工具（如 Nsight Systems 或 Visual Profiler）来监控 GPU 的使用情况和流的性能，根据分析结果进行优化，以确保最大化 GPU 的效率。</p></li>
+</ul>
+<p>通过这种方式，HyperQ 能够在执行多个并行或穿插的推理任务时，显著提高 GPU 的效率和响应速度，尤其在处理多任务和高并发需求的场景中尤为有效。</p>
+<p>在 PyTorch 和 TensorFlow 这样的高级神经网络框架中，通常对 GPU 硬件的底层优化是通过库（如 CUDA 和 cuDNN）来实现的。这些框架通过抽象来简化机器学习模型的开发和训练，但它们也提供了一些工具和机制来允许开发者更细致地控制底层资源，包括利用类似 NVIDIA HyperQ 的技术。</p>
+</section>
+<section id="pytorch">
+<h4>PyTorch 中的多任务并行<a class="headerlink" href="#pytorch" title="Link to this heading"></a></h4>
+<p>PyTorch 使用 CUDA 流来支持并行运算。开发者可以显式创建多个流，并将不同的任务或模型的部分分配给不同的流。这可以通过使用 <code class="docutils literal notranslate"><span class="pre">torch.cuda.Stream</span></code> 来手动管理，从而实现类似 HyperQ 的效果，允许不同的流在不同的核心上并行运行，提高 GPU 利用率。示例代码如下：</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">torch</span>
+
+<span class="c1"># 创建新的 CUDA 流</span>
+<span class="n">stream1</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">Stream</span><span class="p">()</span>
+<span class="n">stream2</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">Stream</span><span class="p">()</span>
+
+<span class="n">A</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="mi">1000</span><span class="p">,</span> <span class="mi">1000</span><span class="p">),</span> <span class="mf">3.0</span><span class="p">)</span>
+<span class="n">B</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="mi">1000</span><span class="p">,</span> <span class="mi">1000</span><span class="p">),</span> <span class="mf">2.0</span><span class="p">)</span>
+
+<span class="c1"># 在第一个流中执行</span>
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">stream</span><span class="p">(</span><span class="n">stream1</span><span class="p">):</span>
+    <span class="n">C</span> <span class="o">=</span> <span class="n">A</span><span class="o">.</span><span class="n">mm</span><span class="p">(</span><span class="n">A</span><span class="p">)</span>
+
+<span class="c1"># 在第二个流中执行</span>
+<span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">stream</span><span class="p">(</span><span class="n">stream2</span><span class="p">):</span>
+    <span class="n">D</span> <span class="o">=</span> <span class="n">B</span><span class="o">.</span><span class="n">mm</span><span class="p">(</span><span class="n">B</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="tensorflow">
+<h4>TensorFlow 中的多任务并行<a class="headerlink" href="#tensorflow" title="Link to this heading"></a></h4>
+<p>TensorFlow 也支持使用多个流来并行执行操作，但这种支持不如 PyTorch 显式。TensorFlow的执行依赖于其运行时环境和如何调度计算图中的操作。TensorFlow 2.x 提高了对异步执行的支持，并且可以通过配置来优化多任务执行。此外，TensorFlow 使用的 XLA（加速线性代数）编译器可以自动并行化多个独立的操作，这在某种程度上类似于 HyperQ 的功能。</p>
+</section>
+<section id="id6">
+<h4>利用并行计算库<a class="headerlink" href="#id6" title="Link to this heading"></a></h4>
+<p>两个框架都高度依赖于 NVIDIA 的 CUDA 和 cuDNN 库，这些库在底层已经针对 NVIDIA 硬件进行了优化，包括对多流和多任务并行的支持。因此，即使高级框架不直接提供类似 HyperQ 的显式支持，它们仍然能通过底层库的优化来从硬件并行性中获益。</p>
+</section>
+<section id="id7">
+<h4>实际使用<a class="headerlink" href="#id7" title="Link to this heading"></a></h4>
+<p>在实际应用中，为了充分利用类似 HyperQ 的技术，开发者需要根据具体的任务和模型来设计并行策略。这可能涉及到对模型结构、数据流和执行策略的深入理解和调整。同时，考虑到硬件和底层库的更新频繁，保持对最新技术和版本的了解也非常重要。</p>
+<p><img alt="image-20240511131856633" src="../../_images/image-20240511131856633.png" /></p>
+</section>
+</section>
+</section>
+<section id="mps">
+<h2>什么是MPS<a class="headerlink" href="#mps" title="Link to this heading"></a></h2>
+<p>什么是 MPS – Multi-Process Service，多进程服务</p>
+<ul class="simple">
+<li><p>一组可替换的，二进制兼容的CUDA API实现，包括：</p>
+<ul>
+<li><p>守护进程</p></li>
+<li><p>服务进程</p></li>
+<li><p>用户运行时</p></li>
+</ul>
+</li>
+<li><p>利用GPU上的Hyper-Q 能力</p>
+<ul>
+<li><p><strong>允许多个CPU进程共享同一GPU context</strong></p></li>
+<li><p><strong>允许不同进程的kernel和memcpy操作在同一GPU上并发执行，以实现最大化 GPU利用率.</strong></p></li>
+</ul>
+</li>
+</ul>
+<p>传统上，当多个进程需要使用同一GPU时，它们各自独立地与GPU交互，每个进程都有自己的独立context。这种方式在切换进程时需要保存和恢复context状态，可能会导致一定的开销。</p>
+<p>利用Hyper-Q的能力，多个CPU进程可以更高效地共享同一个GPU，<strong>通过Hyper-Q的多个队列，这些进程可以在逻辑上共享同一个GPU context</strong>，从而减少了context切换的开销，提高了GPU的任务调度效率。实际上，虽然逻辑上共享同一GPU context，但每个进程还是有自己的独立硬件队列。</p>
+<p><img alt="image-20240511135347988" src="../../_images/image-20240511135347988.png" /></p>
+<ul class="simple">
+<li><p><strong>带来的好处</strong></p>
+<ul>
+<li><p><strong>提升GPU利用率（时间上）和占用率 （空间上）</strong></p></li>
+<li><p><strong>减少GPU上下文切换时间</strong></p></li>
+<li><p><strong>减少GPU上下文存储空间</strong></p></li>
+</ul>
+</li>
+</ul>
+<p><img alt="image-20240511140315032" src="../../_images/image-20240511140315032.png" /></p>
+</section>
+<section id="id8">
+<h2>如何使用MPS<a class="headerlink" href="#id8" title="Link to this heading"></a></h2>
+<p><img alt="image-20240511135450236" src="../../_images/image-20240511135450236.png" /></p>
+<p><img alt="image-20240511135529817" src="../../_images/image-20240511135529817.png" /></p>
+<p><img alt="image-20240511135547811" src="../../_images/image-20240511135547811.png" /></p>
+<p><img alt="image-20240511135638007" src="../../_images/image-20240511135638007.png" /></p>
+<p><img alt="image-20240511140413831" src="../../_images/image-20240511140413831.png" /></p>
+<div class="highlight-shell notranslate"><div class="highlight"><pre><span></span><span class="c1"># 服务开启</span>
+
+
+mkdir<span class="w"> </span>-p<span class="w"> </span>/home/archlab/mps/log
+chmod<span class="w"> </span>-R<span class="w"> </span><span class="m">755</span><span class="w"> </span>/home/archlab/mps/log
+mkdir<span class="w"> </span>-p<span class="w"> </span>/home/archlab/mps/pipe
+chmod<span class="w"> </span>-R<span class="w"> </span><span class="m">755</span><span class="w"> </span>/home/archlab/mps/pipe
+
+nvidia-smi<span class="w"> </span>-i<span class="w"> </span><span class="m">0</span><span class="w"> </span>-c<span class="w"> </span><span class="m">3</span><span class="w"> </span>
+
+<span class="nb">export</span><span class="w"> </span><span class="nv">CUDA_VISIBLE_DEVICES</span><span class="o">=</span><span class="si">${</span><span class="nv">DEVICE</span><span class="si">}</span>
+<span class="nb">export</span><span class="w"> </span><span class="nv">CUDA_MPS_PIPE_DIRECTORY</span><span class="o">=</span><span class="si">${</span><span class="nv">HOME</span><span class="si">}</span>/mps<span class="si">${</span><span class="nv">DEVICE</span><span class="si">}</span>/pipe
+<span class="nb">export</span><span class="w"> </span><span class="nv">CUDA_MPS_LOG_DIRECTORY</span><span class="o">=</span><span class="si">${</span><span class="nv">HOME</span><span class="si">}</span>/mps<span class="si">${</span><span class="nv">DEVICE</span><span class="si">}</span>/log
+
+<span class="c1"># 开启</span>
+nvidia-cuda-mps-control<span class="w"> </span>-d<span class="w">  </span>
+<span class="c1"># (base) archlab@v100-246:~/xy/experiments/toytest$ nvidia-cuda-mps-control -d</span>
+<span class="c1"># An instance of this daemon is already running</span>
+
+<span class="c1"># 退出</span>
+<span class="nb">echo</span><span class="w"> </span>quit<span class="w"> </span><span class="p">|</span><span class="w"> </span>nvidia-cuda-mps-control
+</pre></div>
+</div>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="页脚">
+        <a href="hot-n-cold%20page.html" class="btn btn-neutral float-left" title="hot-n-cold page" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> 上一页</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; 版权所有 2024, Alex Xiong。</p>
+  </div>
+
+  利用 <a href="https://www.sphinx-doc.org/">Sphinx</a> 构建，使用的 
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">主题</a>
+    由 <a href="https://readthedocs.org">Read the Docs</a> 开发.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
