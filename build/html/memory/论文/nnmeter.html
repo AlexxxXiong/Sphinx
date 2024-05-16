@@ -76,7 +76,28 @@
   <section id="nn-meter">
 <h1>nn-Meter: 可高效、准确地预测模型推理时间的系统<a class="headerlink" href="#nn-meter" title="Link to this heading"></a></h1>
 <hr class="docutils" />
-<p>https://www.bilibili.com/video/BV1BM4y1A7T5/?vd_source=95cdaed537ef42447d87ba42e0af33be</p>
+<p>https://www.bilibili.com/video/BV1BM4y1A7T5/?vd_source=95cdaed537ef42447d87ba42e0af33be<img alt="image-20240511180959845" src="../../_images/image-20240511180959845.png" /></p>
+<p><img alt="image-20240511181017766" src="../../_images/image-20240511181017766.png" /></p>
+<p><img alt="image-20240511181044140" src="../../_images/image-20240511181044140.png" /></p>
+<blockquote>
+<div><p>op 不准，没考虑系统优化</p>
+<p>graph取决于数据集质量</p>
+<p>所以nnmeter考虑kernel层面。</p>
+</div></blockquote>
+<p><img alt="image-20240511181204385" src="../../_images/image-20240511181204385.png" /></p>
+<blockquote>
+<div><p>第一：每个算子尝试可能的融合，如果带来收益，就认为可融合。</p>
+<p>​           然后深度优先搜索去找更多的融合可能。</p>
+</div></blockquote>
+<p><img alt="image-20240511181325255" src="../../_images/image-20240511181325255.png" /></p>
+<p><img alt="image-20240511181721677" src="../../_images/image-20240511181721677.png" /></p>
+<p><img alt="image-20240511181909649" src="../../_images/image-20240511181909649.png" /></p>
+<blockquote>
+<div><p>kernel 搜索空间过大，而random example会错过一些样本点。学出来的latency pattern不准。</p>
+<p>设计会考虑的+重要的数据点(误差比较大的点)附近去采样。</p>
+</div></blockquote>
+<p><img alt="image-20240511182030005" src="../../_images/image-20240511182030005.png" /></p>
+<p><img alt="image-20240511182510018" src="../../_images/image-20240511182510018.png" /></p>
 </section>
 
 

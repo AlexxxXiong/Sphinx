@@ -22,6 +22,7 @@
     <script src="../../_static/js/theme.js"></script>
     <link rel="index" title="索引" href="../../genindex.html" />
     <link rel="search" title="搜索" href="../../search.html" />
+    <link rel="next" title="BUILD Bazel入门：编译C++项目" href="BUILD.html" />
     <link rel="prev" title="hot-n-cold page" href="hot-n-cold%20page.html" /> 
 </head>
 
@@ -48,6 +49,7 @@
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../../Tools/index.html">工具合集</a></li>
 <li class="toctree-l1 current"><a class="reference internal" href="../index.html">内存相关信息</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../%E8%AE%BA%E6%96%87/index.html">论文</a></li>
 <li class="toctree-l2 current"><a class="reference internal" href="index.html">原理</a><ul class="current">
 <li class="toctree-l3"><a class="reference internal" href="TFLite%20memory.html"><strong>优化 TensorFlow Lite 运行时内存</strong></a></li>
 <li class="toctree-l3"><a class="reference internal" href="BFC%20Allocator.html">TensorFlow中的显存管理器——BFC Allocator </a></li>
@@ -60,6 +62,7 @@
 <li class="toctree-l4"><a class="reference internal" href="#id8">如何使用MPS</a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="BUILD.html">BUILD    Bazel入门：编译C++项目</a></li>
 </ul>
 </li>
 </ul>
@@ -327,6 +330,44 @@ nvidia-cuda-mps-control<span class="w"> </span>-d<span class="w">  </span>
 <span class="nb">echo</span><span class="w"> </span>quit<span class="w"> </span><span class="p">|</span><span class="w"> </span>nvidia-cuda-mps-control
 </pre></div>
 </div>
+<section id="id9">
+<h3>MPS 效果验证<a class="headerlink" href="#id9" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># 200 * 1</span>
+<span class="n">forward</span> <span class="n">time</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">22.67382</span> <span class="n">sec</span>
+<span class="n">total</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">28.66332</span> <span class="n">sec</span>
+
+
+<span class="c1"># 100 * 2</span>
+<span class="n">forward</span> <span class="n">time</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">14.67429</span> <span class="n">sec</span>
+<span class="n">forward</span> <span class="n">time</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">12.30548</span> <span class="n">sec</span>
+<span class="n">total</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">21.19180</span> <span class="n">sec</span>
+<span class="n">total</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">22.90837</span> <span class="n">sec</span>
+<span class="mi">3848</span><span class="n">MiB</span>
+
+<span class="c1"># 50 * 4 </span>
+<span class="n">forward</span> <span class="n">time</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">7.44151</span> <span class="n">sec</span>
+<span class="n">forward</span> <span class="n">time</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">7.91754</span> <span class="n">sec</span>
+<span class="n">forward</span> <span class="n">time</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">9.20905</span> <span class="n">sec</span>
+<span class="n">forward</span> <span class="n">time</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">7.36919</span> <span class="n">sec</span>
+<span class="n">total</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">22.33154</span> <span class="n">sec</span>
+<span class="n">total</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">22.17165</span> <span class="n">sec</span>
+
+
+<span class="c1"># 25 * 8 </span>
+<span class="n">forward</span> <span class="n">time</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">4.08045</span> <span class="n">sec</span>
+<span class="n">forward</span> <span class="n">time</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">4.28213</span> <span class="n">sec</span>
+<span class="n">forward</span> <span class="n">time</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">3.84626</span> <span class="n">sec</span>
+<span class="n">forward</span> <span class="n">time</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">4.31290</span> <span class="n">sec</span>
+<span class="n">forward</span> <span class="n">time</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">3.88184</span> <span class="n">sec</span>
+<span class="n">forward</span> <span class="n">time</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">4.43073</span> <span class="n">sec</span>
+<span class="n">forward</span> <span class="n">time</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">3.84187</span> <span class="n">sec</span>
+<span class="n">forward</span> <span class="n">time</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">4.07850</span> <span class="n">sec</span>
+<span class="n">total</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">31.17430</span> <span class="n">sec</span>
+<span class="n">total</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">30.17367</span> <span class="n">sec</span>
+<span class="n">total</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">30.21725</span> <span class="n">sec</span>
+</pre></div>
+</div>
+</section>
 </section>
 </section>
 
@@ -335,6 +376,7 @@ nvidia-cuda-mps-control<span class="w"> </span>-d<span class="w">  </span>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="页脚">
         <a href="hot-n-cold%20page.html" class="btn btn-neutral float-left" title="hot-n-cold page" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> 上一页</a>
+        <a href="BUILD.html" class="btn btn-neutral float-right" title="BUILD Bazel入门：编译C++项目" accesskey="n" rel="next">下一页 <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

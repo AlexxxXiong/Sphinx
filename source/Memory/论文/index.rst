@@ -9,5 +9,9 @@
 .. toctree::
    :maxdepth: 1
   
-
-   nn-Meter
+   nnmeter
+   GMLake Efficient and Transparent GPU Memory Defragmentation for Large-scale DNN Training with Virtual Memory Stitching
+   Fast, multicore-scalable, low-fragmentation memory allocation through large virtual memory and global data structures.
+   FaaSMem
+   Fractal
+   Mixed Precision Quantization

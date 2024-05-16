@@ -218,3 +218,41 @@ echo quit | nvidia-cuda-mps-control
 
 ```
 
+### MPS 效果验证
+
+``` python
+# 200 * 1
+forward time cost: 22.67382 sec
+total cost: 28.66332 sec
+
+
+# 100 * 2
+forward time cost: 14.67429 sec
+forward time cost: 12.30548 sec
+total cost: 21.19180 sec
+total cost: 22.90837 sec
+3848MiB
+
+# 50 * 4 
+forward time cost: 7.44151 sec
+forward time cost: 7.91754 sec
+forward time cost: 9.20905 sec
+forward time cost: 7.36919 sec
+total cost: 22.33154 sec
+total cost: 22.17165 sec
+
+
+# 25 * 8 
+forward time cost: 4.08045 sec
+forward time cost: 4.28213 sec
+forward time cost: 3.84626 sec
+forward time cost: 4.31290 sec
+forward time cost: 3.88184 sec
+forward time cost: 4.43073 sec
+forward time cost: 3.84187 sec
+forward time cost: 4.07850 sec
+total cost: 31.17430 sec
+total cost: 30.17367 sec
+total cost: 30.21725 sec
+```
+

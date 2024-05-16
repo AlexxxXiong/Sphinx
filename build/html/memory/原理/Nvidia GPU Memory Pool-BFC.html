@@ -49,6 +49,7 @@
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../../Tools/index.html">工具合集</a></li>
 <li class="toctree-l1 current"><a class="reference internal" href="../index.html">内存相关信息</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../%E8%AE%BA%E6%96%87/index.html">论文</a></li>
 <li class="toctree-l2 current"><a class="reference internal" href="index.html">原理</a><ul class="current">
 <li class="toctree-l3"><a class="reference internal" href="TFLite%20memory.html"><strong>优化 TensorFlow Lite 运行时内存</strong></a></li>
 <li class="toctree-l3"><a class="reference internal" href="BFC%20Allocator.html">TensorFlow中的显存管理器——BFC Allocator </a></li>
@@ -60,9 +61,14 @@
 <li class="toctree-l4"><a class="reference internal" href="#id3">流程举例</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#id4">结论</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#linux">1.1 Linux内核内存池</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id8">1.2 其他内存池</a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="memory%20system%20call.html">memory system call</a></li>
+<li class="toctree-l3"><a class="reference internal" href="hot-n-cold%20page.html">hot-n-cold page</a></li>
+<li class="toctree-l3"><a class="reference internal" href="MPS.html">如何使用MPS提升GPU计算收益</a></li>
+<li class="toctree-l3"><a class="reference internal" href="BUILD.html">BUILD    Bazel入门：编译C++项目</a></li>
+<li class="toctree-l3"><a class="reference internal" href="GPU%20Virtual%20Memory%20Management.html">Introducing Low-Level GPU Virtual Memory Management</a></li>
 </ul>
 </li>
 </ul>
@@ -310,6 +316,128 @@
 </ul>
 </li>
 </ol>
+<p>对于TensorFlow和PyTorch的内存分配机制及其初始分配规则，可以通过查看它们的源代码来获取更详细的信息。下面是一些指导，帮助你了解这些规则在源代码中是如何实现的：</p>
+</section>
+<section id="tensorflow">
+<h3>TensorFlow<a class="headerlink" href="#tensorflow" title="Link to this heading"></a></h3>
+<p>在TensorFlow中，内存管理主要由BFC（Best-Fit with Coalescing）分配器处理，它负责GPU内存的分配。要找到与内存分配相关的代码和初始分配规则：</p>
+<ul class="simple">
+<li><p><strong>源码位置</strong>：TensorFlow的内存分配器实现位于<code class="docutils literal notranslate"><span class="pre">tensorflow/core/common_runtime/bfc_allocator.cc</span></code>。这里包含了BFC分配器的逻辑，包括它是如何初始化内存池的。</p></li>
+<li><p><strong>初始化规则</strong>：在BFC分配器的初始化过程中，会基于用户的配置或默认设置来决定初始的内存大小。如果启用了内存增长，初始分配通常较小，并根据需要进行调整。</p></li>
+</ul>
+</section>
+<section id="pytorch">
+<h3>PyTorch<a class="headerlink" href="#pytorch" title="Link to this heading"></a></h3>
+<p>PyTorch使用缓存分配器来管理CUDA内存，这种策略的实现有助于动态地回收和重新分配内存，从而优化内存使用：</p>
+<ul class="simple">
+<li><p><strong>源码位置</strong>：PyTorch的CUDA内存分配器代码主要在<code class="docutils literal notranslate"><span class="pre">c10/cuda/CUDACachingAllocator.cpp</span></code>中。这个文件包含了缓存分配器的核心实现。</p></li>
+<li><p><strong>初始化规则</strong>：PyTorch的内存分配器在模型开始运行时不会立即申请大量内存。它根据模型运行时的需求动态地分配和释放内存，初始分配通常是按需进行的。</p></li>
+</ul>
+<p>这些文件包含了内存分配的具体实现逻辑，你可以通过查看这些源文件来获取关于内存分配策略和初始化规则的详细信息。如果你对源代码有进一步的问题或需要帮助理解特定部分，随时可以询问！</p>
+</section>
+</section>
+<section id="id8">
+<h2>1.2 其他内存池<a class="headerlink" href="#id8" title="Link to this heading"></a></h2>
+<p>(1) tcmalloc</p>
+<p>Tcmalloc是Google开发的高效稳定的内存分配器。它采用slab技术，可以有效避免内存碎片。在多线程环境下的性能非常好，速度也比较快，适合在大规模、高并发的分布式集群系统中使用。同时支持调整参数，可以根据不同的应用场景和硬件配置进行适当调整，使内存分配更加高效。</p>
+<p>tcmalloc不支持动态内存分配，因此不能与系统内置的内存分配器交互使用。并且由于tcmalloc需要优化，需要增大二进制文件的大小，影响加载速度。</p>
+<p>(2) jemalloc</p>
+<p>Jemalloc 是 FreeBSD 开发的通用内存分配器。它主要使用分层分配来管理内存。在多线程环境下，尤其是在虚拟机中，具有出色的分配和释放性能。并取得了良好的业绩。</p>
+<p>Jemalloc采用固定大小的多级内存分配算法，很容易导致内存浪费，并且在内存分配速度上比tcmalloc稍慢。</p>
+<blockquote>
+<div><p>这些都是知名的内存分配器。以下是它们的全称及简要介绍：</p>
+<ol class="simple">
+<li><p><strong>jemalloc (Jason Evans malloc)</strong></p>
+<ul class="simple">
+<li><p><strong>全称</strong>：Jason Evans Memory Allocator</p></li>
+<li><p><strong>管理内存方式</strong>：使用分层结构和多级内存池来管理内存。通过合并空闲块来减少内存碎片。</p></li>
+<li><p><strong>针对问题</strong>：优化内存分配性能和减少内存碎片。</p></li>
+<li><p><strong>考虑点</strong>：平衡内存使用效率和分配速度。</p></li>
+</ul>
+</li>
+<li><p><strong>llalloc (Low Latency Alloc)</strong></p>
+<ul class="simple">
+<li><p><strong>全称</strong>：Low Latency Allocator</p></li>
+<li><p><strong>管理内存方式</strong>：旨在提供低延迟内存分配，特别适用于实时系统。</p></li>
+<li><p><strong>针对问题</strong>：降低内存分配和释放的延迟。</p></li>
+<li><p><strong>考虑点</strong>：极低的分配延迟。</p></li>
+</ul>
+</li>
+<li><p><strong>ptmalloc2 (Pthreads malloc 2)</strong></p>
+<ul class="simple">
+<li><p><strong>全称</strong>：Pthreads Memory Allocator 2</p></li>
+<li><p><strong>管理内存方式</strong>：基于Doug Lea的dlmalloc改进，支持多线程环境。</p></li>
+<li><p><strong>针对问题</strong>：多线程环境中的内存分配。</p></li>
+<li><p><strong>考虑点</strong>：线程安全和性能。</p></li>
+</ul>
+</li>
+<li><p><strong>TCMalloc (Thread-Caching Malloc)</strong></p>
+<ul class="simple">
+<li><p><strong>全称</strong>：Thread-Caching Malloc</p></li>
+<li><p><strong>管理内存方式</strong>：使用线程局部缓存减少锁争用，提高多线程环境中的分配速度。</p></li>
+<li><p><strong>针对问题</strong>：高并发环境下的内存分配效率。</p></li>
+<li><p><strong>考虑点</strong>：减少锁争用，提高分配速度。</p></li>
+</ul>
+</li>
+<li><p><strong>Hoard</strong></p>
+<ul class="simple">
+<li><p><strong>全称</strong>：Hoard Memory Allocator</p></li>
+<li><p><strong>管理内存方式</strong>：使用分级分配器和局部缓存来减少内存碎片和提高多线程性能。</p></li>
+<li><p><strong>针对问题</strong>：减少内存碎片和提高多线程环境的性能。</p></li>
+<li><p><strong>考虑点</strong>：线程局部缓存和全局缓存的平衡。</p></li>
+</ul>
+</li>
+<li><p><strong>scalloc (Scalable Malloc)</strong></p>
+<ul class="simple">
+<li><p><strong>全称</strong>：Scalable Malloc</p></li>
+<li><p><strong>管理内存方式</strong>：设计用于多核处理器的分配器，减少同步开销。</p></li>
+<li><p><strong>针对问题</strong>：多核处理器环境下的内存分配效率。</p></li>
+<li><p><strong>考虑点</strong>：减少同步开销，提高并发性。</p></li>
+</ul>
+</li>
+<li><p><strong>Streamflow</strong></p>
+<ul class="simple">
+<li><p><strong>全称</strong>：Streamflow Memory Allocator</p></li>
+<li><p><strong>管理内存方式</strong>：通过分配器池和流式分配策略来减少内存碎片。</p></li>
+<li><p><strong>针对问题</strong>：减少内存碎片和提高分配性能。</p></li>
+<li><p><strong>考虑点</strong>：流式分配策略。</p></li>
+</ul>
+</li>
+<li><p><strong>SuperMalloc</strong></p>
+<ul class="simple">
+<li><p><strong>全称</strong>：SuperMalloc</p></li>
+<li><p><strong>管理内存方式</strong>：基于大页和快速分配策略优化性能。</p></li>
+<li><p><strong>针对问题</strong>：提高分配性能和减少内存碎片。</p></li>
+<li><p><strong>考虑点</strong>：大页支持和快速分配。</p></li>
+</ul>
+</li>
+<li><p><strong>TBB (Threading Building Blocks malloc)</strong></p>
+<ul class="simple">
+<li><p><strong>全称</strong>：Threading Building Blocks malloc</p></li>
+<li><p><strong>管理内存方式</strong>：使用TBB库中的分配器，优化并发性能。</p></li>
+<li><p><strong>针对问题</strong>：多线程环境中的内存分配。</p></li>
+<li><p><strong>考虑点</strong>：并发性能和可扩展性。</p></li>
+</ul>
+</li>
+</ol>
+</div></blockquote>
+<section id="jemalloc-tcmalloc">
+<h3>为什么说Jemalloc采用固定大小的多级内存分配算法，很容易导致内存浪费，并且在内存分配速度上比TCMalloc稍慢？<a class="headerlink" href="#jemalloc-tcmalloc" title="Link to this heading"></a></h3>
+<ol class="simple">
+<li><p><strong>固定大小的多级内存分配算法</strong>：</p>
+<ul class="simple">
+<li><p>Jemalloc使用多级分配器，每一级都有固定大小的内存块。这种策略虽然减少了内存碎片，但可能导致内存浪费，因为每个分配的内存块大小是固定的，不能灵活调整。</p></li>
+<li><p>当需要分配的内存大小与预设的块大小不匹配时，会导致一些未使用的内存块无法有效利用，产生内存浪费。</p></li>
+</ul>
+</li>
+<li><p><strong>内存分配速度</strong>：</p>
+<ul class="simple">
+<li><p>TCMalloc采用线程局部缓存策略，可以减少线程间的锁争用，从而提高分配速度。每个线程有自己的缓存，减少了全局锁的使用。</p></li>
+<li><p>Jemalloc虽然也有类似的优化，但其多级分配策略和更复杂的内存管理结构使其在某些情况下分配速度略慢于TCMalloc。</p></li>
+</ul>
+</li>
+</ol>
+<p>因此，Jemalloc在减少内存碎片方面表现出色，但在某些高并发场景下，其固定大小的分配块和多级结构可能会导致一些内存浪费，并且在分配速度上略逊于TCMalloc。</p>
 </section>
 </section>
 </section>

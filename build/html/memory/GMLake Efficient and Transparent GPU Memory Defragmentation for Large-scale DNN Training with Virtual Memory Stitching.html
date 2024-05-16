@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="zh-CN" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GMLake: Efficient and Transparent GPU Memory Defragmentation for Large-scale DNN Training with Virtual Memory Stitching &mdash; Mylab v1 文档</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=92fd9be5" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=19f00094" />
+
+  
+  <!--[if lt IE 9]>
+    <script src="../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="../_static/jquery.js?v=5d32c60e"></script>
+        <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+        <script src="../_static/documentation_options.js?v=181ac3c6"></script>
+        <script src="../_static/doctools.js?v=9a2dae69"></script>
+        <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+        <script src="../_static/translations.js?v=beaddf03"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="索引" href="../genindex.html" />
+    <link rel="search" title="搜索" href="../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            Mylab
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="搜索文档" aria-label="搜索文档" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="导航菜单">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../Tools/index.html">工具合集</a></li>
+<li class="toctree-l1"><a class="reference internal" href="index.html">内存相关信息</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="移动版导航菜单" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">Mylab</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="页面导航">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">GMLake: Efficient and Transparent GPU Memory Defragmentation for Large-scale DNN Training with Virtual Memory Stitching</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/Memory/GMLake Efficient and Transparent GPU Memory Defragmentation for Large-scale DNN Training with Virtual Memory Stitching.md.txt" rel="nofollow"> 查看页面源码</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="gmlake-efficient-and-transparent-gpu-memory-defragmentation-for-large-scale-dnn-training-with-virtual-memory-stitching">
+<h1>GMLake: Efficient and Transparent GPU Memory Defragmentation for Large-scale DNN Training with Virtual Memory Stitching<a class="headerlink" href="#gmlake-efficient-and-transparent-gpu-memory-defragmentation-for-large-scale-dnn-training-with-virtual-memory-stitching" title="Link to this heading"></a></h1>
+<p>GMLake：通过虚拟内存拼接进行大规模 DNN 训练的高效、透明的 GPU 内存碎片整理</p>
+<hr class="docutils" />
+<p>Abstract：大规模深度神经网络（DNN），如大型语言模型（LLM），已经彻底改变了人工智能（AI）领域，并变得越来越受欢迎。然而，训练或微调此类模型需要大量的计算能力和资源，其中单个加速设备（如GPU）的内存容量是最重要的瓶颈之一。</p>
+<p><strong>由于GPU原生内存分配器的开销极大（例如，10倍），PyTorch和TensorFlow等DNN框架采用了一种缓存分配器，它维护一个内存池并使用分割机制来快速进行内存分配和释放。</strong></p>
+<p><strong>然而，针对流行的内存减缩技术（如重新计算、卸载、分布式训练和低秩适应），缓存分配器的效率会迅速降低。</strong></p>
+<p><strong>其主要原因是，这些内存减缩技术引入了频繁且不规则的内存（分配和释放）请求，导致基于分割的缓存分配器产生严重的碎片化问题。</strong></p>
+<p>为减轻这种碎片化问题，我们提出了一种基于低级GPU虚拟内存管理的新型内存分配框架，称为GPU内存湖（GMLake）。</p>
+<p>GMLake采用了一种新颖的虚拟内存拼接（VMS）机制，可以通过虚拟内存地址映射将不连续的内存块融合或组合在一起。</p>
+<p>GMLake可以减少平均9.2 GB（最高达25 GB）的GPU内存使用量，并在A100 80 GB内存的GPU上减少15%（最高达33%）的碎片化问题，<strong>针对八个LLM模型。GMLake对DNN模型和内存减缩技术完全透明，确保资源密集型深度学习任务的无缝执行。</strong></p>
+<blockquote>
+<div><p>原生分配器，内存池技术，内存缩减技术。</p>
+</div></blockquote>
+<section id="introduction">
+<h2>Introduction<a class="headerlink" href="#introduction" title="Link to this heading"></a></h2>
+<p>![image-20240508141432224](/Users/alex/Library/Application Support/typora-user-images/image-20240508141432224.png)</p>
+<p>大规模深度神经网络（DNN）模型，特别是大型语言模型（LLM），已经彻底改变了自然语言处理（NLP）和人工智能（AI）研究领域 [88]。如GPT-3 [8] 架构的LLM，是复杂的DNN模型，具备在理解、生成和处理人类语言方面的卓越能力。这些模型利用了大量的文本数据，并采用以注意力机制为特点的基于Transformer的架构 [78]，在各种NLP任务上实现了最先进的性能。然而，LLM的广泛采用伴随着重大的计算挑战，因为训练或微调此类模型需要大量的计算能力和资源。例如，拥有1750亿参数的OPT [87]，在1024个A100 GPU上需要34天，而拥有650亿参数的LLaMA [77] 处理1.4万亿个token，使用2048个A100 GPU大约需要21天。因此，深度学习（DL）框架如PyTorch [63] 和TensorFlow [76] 已成为DNN模型的基础设施，因其灵活性和计算效率而备受推崇。这些DL框架使得越来越大、越来越复杂的神经网络模型得以训练。同时，GPU架构 [12, 36, 60] 已成为支持DNN模型高性能执行的最广泛使用的硬件。</p>
+<p>另一方面，<strong>DNN模型规模和复杂度的增长对GPU内存管理提出了新的挑战。例如，使用CUDA的原生内存分配API如cudaMalloc和cudaFree会带来巨大的开销。为了提高GPU内存分配的效率，DL框架选择实现一种缓存分配器，它使用最合适的适配与合并（BFC）算法 [76] 维护一个内存池。我们的实验表明，缓存分配器的性能比原生内存分配器高出近10倍。</strong></p>
+<p>另一方面，大规模DNN模型 [2, 75] 对内存需求的迅速增长已经引发了在系统级和算法级减轻内存需求的方法的开发。例如，重新计算 [40, 86]、卸载 [69]、分布式训练 [28, 30, 42, 45, 72, 83] 和低秩适应 [29] 等方法。尽管这些优化可以有效降低训练或微调大规模DNN模型的内存占用，但它们可能导致内存利用效率低下。其原因在于，这些方法在内存分配请求中引入了大量的不规则性和动态性，导致高达30%的GPU内存碎片化。</p>
+<p>如图1左侧所示，DL框架在内存池中管理内存分配。它们采用“分割”方法，将内存池分割以适应DNN张量的任意大小，提高内存池的利用率。然而，这种方法会导致某些新分配的内存产生严重的碎片化问题。例如，框架将第三行分割以存储新分配的Block 4，但内存池无法容纳Block 6，因为Block 6的大小大于Block 5，导致Block 5无法利用并变成碎片。最终，框架将报告DNN模型训练过程中最常见的问题之一：内存不足（OOM）错误。前述的内存减缩技术如重新计算和卸载可以缓解OOM问题，但也会导致更频繁和不规则的内存分配与释放请求，加剧碎片化问题。</p>
+<p>为了缓解GPU内存碎片化并提高内存利用效率，本研究致力于探索GPU内存碎片化的原因，并提出了一种基于低级GPU虚拟内存管理的新型内存分配框架，称为GPU内存湖（GMLake），以优化GPU内存管理并降低开销。如图1右侧所示，GMLake采用了一种新颖的虚拟内存拼接（VMS）机制，与分割方法似乎呈反向行为。与原始框架相比，它可以通过虚拟内存地址映射将不连续的内存块融合或组合在一起。例如，VMS可以通过虚拟内存地址将Block 6映射到Block 2和Block 5的拼接块中，然后将Block 6存储在Block 2和Block 5的物理内存块中。显然，虚拟内存拼接有效减少了内存碎片化并提高了内存利用率。我们在DL框架的低级实现了GMLake，并替换了DNN训练的原始内存分配API。GMLake对DNN模型和其他内存优化方法如重新计算和卸载完全透明，确保资源密集型深度学习任务的无缝执行。</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; 版权所有 2024, Alex Xiong。</p>
+  </div>
+
+  利用 <a href="https://www.sphinx-doc.org/">Sphinx</a> 构建，使用的 
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">主题</a>
+    由 <a href="https://readthedocs.org">Read the Docs</a> 开发.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

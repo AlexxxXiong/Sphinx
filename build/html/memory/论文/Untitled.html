@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="zh-CN" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fast, multicore-scalable, low-fragmentation memory allocation through large virtual memory and global data structures. 2015 ACM &mdash; Mylab v1 文档</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=92fd9be5" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=19f00094" />
+
+  
+  <!--[if lt IE 9]>
+    <script src="../../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="../../_static/jquery.js?v=5d32c60e"></script>
+        <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+        <script src="../../_static/documentation_options.js?v=181ac3c6"></script>
+        <script src="../../_static/doctools.js?v=9a2dae69"></script>
+        <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+        <script src="../../_static/translations.js?v=beaddf03"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="索引" href="../../genindex.html" />
+    <link rel="search" title="搜索" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            Mylab
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="搜索文档" aria-label="搜索文档" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="导航菜单">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../Tools/index.html">工具合集</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../index.html">内存相关信息</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="移动版导航菜单" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">Mylab</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="页面导航">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Fast, multicore-scalable, low-fragmentation memory allocation through large virtual memory and global data structures. 2015 ACM</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/Memory/论文/Untitled.md.txt" rel="nofollow"> 查看页面源码</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="fast-multicore-scalable-low-fragmentation-memory-allocation-through-large-virtual-memory-and-global-data-structures-2015-acm">
+<h1>Fast, multicore-scalable, low-fragmentation memory allocation through large virtual memory and global data structures. 2015 ACM<a class="headerlink" href="#fast-multicore-scalable-low-fragmentation-memory-allocation-through-large-virtual-memory-and-global-data-structures-2015-acm" title="Link to this heading"></a></h1>
+<blockquote>
+<div><ol class="simple">
+<li><p>在高级编程语言中，动态内存管理是一项关键技术。这意味着程序在运行时动态地分配和释放内存，以适应不断变化的数据存储需求。动态内存管理的效率直接影响程序的性能和资源使用效率。</p></li>
+<li><p><strong>性能扩展性问题</strong>：在多核处理器上，一个理想的内存分配器应该能随着处理器核心数的增加而线性地提高性能。然而，许多现有的内存分配器在处理多线程或多核心时，性能增长并不明显，这通常是由于内存访问冲突、同步开销或其他资源竞争导致的。简单来说，这意味着虽然处理器的计算能力增加了，但内存分配器无法充分利用这些额外的计算资源，导致整体性能提升有限。</p></li>
+<li><p><strong>内存消耗问题</strong>：一些内存分配器虽然能够在多核环境下扩展其性能，但这种扩展往往以牺牲较高的内存消耗为代价。这是因为为了减少线程间的资源竞争，这些分配器可能会为每个核心或线程分配额外的内存资源（如缓冲区、内存池等），这虽然可以提高性能，但同时也增加了内存的整体使用量。这种方法在资源受限或对内存使用敏感的应用场景中可能不是最优选择。</p></li>
+</ol>
+<p>TLAB是用于线程本地内存分配的缓冲区。每个线程都有自己的TLAB，这样可以在没有全局锁的情况下快速分配内存。因为内存分配和释放操作局限在本地，所以可以大幅减少线程之间的竞争，提高性能。</p>
+<p>“跨度”指的是连续的内存块，</p>
+<ul class="simple">
+<li><p><strong>分配速度</strong>：跨度越大，每次需要扩展TLAB时，分配的速度通常越快。这是因为较大的跨度减少了与操作系统交互的次数，从而加快了内存分配的速度。</p></li>
+<li><p><strong>内存效率</strong>：然而，跨度越大，可能会导致内存使用效率降低。因为TLAB中未使用的内存不能被其他线程利用，这可能导致内存浪费。只有当整个跨度都不再被使用时，它才能被归还给操作系统或者被其他线程重用。</p></li>
+</ul>
+<p>这段描述讨论了内存分配器中跨度（spans）的尺寸设计对内存管理效率的影响。分为两种设计策略：所有跨度具有相同尺寸和跨度尺寸不一。这两种策略各有优劣，通常的解决方案是采用一种混合型策略。让我来逐一解释这些概念：</p>
+</div></blockquote>
+<section id="id1">
+<h2>所有跨度具有相同的尺寸<a class="headerlink" href="#id1" title="Link to this heading"></a></h2>
+<p>当所有的跨度大小相同时，管理变得更简单。无论请求的对象大小如何，都可以从任何空闲跨度中分配内存。这种设计的主要优点是：</p>
+<ul class="simple">
+<li><p><strong>简化管理</strong>：所有的跨度都是一样大，易于管理和重用。</p></li>
+<li><p><strong>线程同步</strong>：只需要最基本的线程同步，因为所有跨度都是标准化的，重用机制简单。</p></li>
+</ul>
+<p>然而，这种方法也有缺点：</p>
+<ul class="simple">
+<li><p><strong>内部碎片</strong>：如果跨度大小设置得比较大，而分配的对象较小，那么在每个跨度内部可能会有未使用的空间，从而导致内存浪费。</p></li>
+</ul>
+</section>
+<section id="id2">
+<h2>跨度尺寸不一<a class="headerlink" href="#id2" title="Link to this heading"></a></h2>
+<p>这种设计允许跨度有不同的大小，更灵活地适应不同大小的内存请求。其优点包括：</p>
+<ul class="simple">
+<li><p><strong>灵活性</strong>：可以根据需要分配最合适大小的跨度，减少内部碎片。</p></li>
+<li><p><strong>优化内存使用</strong>：通过选择最适合当前需求的跨度大小，可以更有效地利用内存。</p></li>
+</ul>
+<p>但这种设计也有其挑战：</p>
+<ul class="simple">
+<li><p><strong>线程同步和碎片整理</strong>：不同大小的跨度可能需要更复杂的管理策略，包括线程间的同步和内存碎片的整理，以确保内存的高效使用。</p></li>
+</ul>
+</section>
+<section id="id3">
+<h2>混合型设计<a class="headerlink" href="#id3" title="Link to this heading"></a></h2>
+<p>大多数高性能的并发内存分配器采用的是混合型设计，结合了上述两种策略的优点。在这种设计中：</p>
+<ul class="simple">
+<li><p><strong>小对象使用固定大小跨度</strong>：为了高效管理和快速分配，小对象通常在固定大小的跨度中分配，这些跨度小而均匀。</p></li>
+<li><p><strong>大对象使用可变大小跨度</strong>：对于较大的对象，则选择最合适的跨度大小进行分配，以减少内部碎片和提高内存利用率。</p></li>
+</ul>
+<p>这种混合策略尝试平衡内存使用的效率和分配操作的性能，通过适当的跨度管理减少内存浪费同时保持高效的内存访问速度。</p>
+<p>这段话解释了scalloc内存分配器中“虚拟跨度”（virtual spans）概念如何提升性能和内存效率，尤其是在并发环境下。下面详细解释各个部分：</p>
+</section>
+<section id="id4">
+<h2>虚拟跨度和真实跨度<a class="headerlink" href="#id4" title="Link to this heading"></a></h2>
+<p>在scalloc中，虚拟跨度是在虚拟内存中预留的较大内存块，而实际的内存分配（真实跨度）通常只占用虚拟跨度的一小部分。这样做的好处包括：</p>
+<ul class="simple">
+<li><p><strong>减少协调成本</strong>：所有虚拟跨度大小相同，简化了内存管理逻辑，因为不需要为不同大小的跨度进行复杂的协调和管理。</p></li>
+<li><p><strong>降低内存消耗</strong>：虚拟跨度中未使用的部分不会映射到实际物理内存，因此不会占用物理资源。操作系统通过按需分页技术（on-demand paging）管理这些内存，只有被实际使用的部分才占用物理内存。</p></li>
+</ul>
+</section>
+<section id="id5">
+<h2>全局数据结构和跨池<a class="headerlink" href="#id5" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>全局数据结构</strong>：虚拟跨度的统一大小允许使用单一的全局数据结构（如跨池，span-pool）来管理所有的空闲跨度。这种方法减少了传统上因数据结构复杂性引起的性能瓶颈。</p></li>
+<li><p><strong>跨池</strong>：跨池是一个高效、可扩展的后端存储结构，用于存储和回收不再使用的跨度。当跨度不再被任何线程使用时，它们可以被快速地归还给跨池，并最终通过<code class="docutils literal notranslate"><span class="pre">madvise</span></code>系统调用释放回操作系统，从而减少了物理内存的碎片化。</p></li>
+</ul>
+</section>
+<section id="id6">
+<h2>前端设计<a class="headerlink" href="#id6" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>恒定时间操作</strong>：scalloc的前端设计保证至少有一个线程能在常数时间内完成内存分配或释放操作，即使在多线程环境下也能保持高性能。这是通过减少需要同步的操作和优化内存操作路径来实现的。</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; 版权所有 2024, Alex Xiong。</p>
+  </div>
+
+  利用 <a href="https://www.sphinx-doc.org/">Sphinx</a> 构建，使用的 
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">主题</a>
+    由 <a href="https://readthedocs.org">Read the Docs</a> 开发.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
