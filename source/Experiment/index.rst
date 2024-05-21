@@ -3,17 +3,14 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Knowledge World of Xiong Yi
+一些实验过程
 =================================
 
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 2
    :caption: Contents:
 
-   Tools/index
-   Memory/index
-   Experiment/index
-   Knowledge/index
-
+   内存分配/index
+   访存行为/index
 
 
