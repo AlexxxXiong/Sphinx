@@ -11,5 +11,7 @@
   
 
    强化学习
+   MIT 6.S081
+   continuous batching
 
 
